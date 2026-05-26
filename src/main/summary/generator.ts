@@ -21,12 +21,19 @@ function run(cmd: string, cwd: string): string {
 
 function getModifiedFiles(cwd: string, startCommit?: string): string[] {
   try {
+    const seen = new Set<string>()
+
     if (startCommit) {
-      const out = run(`git diff --name-only ${startCommit} HEAD`, cwd)
-      if (out) return out.split('\n').filter(Boolean)
+      // Committed changes since session start
+      const committed = run(`git diff --name-only ${startCommit} HEAD`, cwd)
+      if (committed) committed.split('\n').filter(Boolean).forEach((f) => seen.add(f))
     }
-    const out = run('git status --porcelain', cwd)
-    return out.split('\n').filter(Boolean).map((l) => l.slice(3).trim()).filter(Boolean)
+
+    // Staged (index) changes — tracked files only
+    const staged = run('git diff --name-only --cached HEAD', cwd)
+    if (staged) staged.split('\n').filter(Boolean).forEach((f) => seen.add(f))
+
+    return [...seen]
   } catch {
     return []
   }
@@ -210,24 +217,17 @@ export async function generateSessionSummary(
   return { session_id: sessionId, timestamp, text, modified_files: modifiedFiles, commits, status }
 }
 
-/** Format summary as plain-text context injected when a session restarts */
-export function formatSummaryAsContext(summaryJson: string): string {
-  try {
-    const s = JSON.parse(summaryJson) as SessionSummary & { summary?: string[] }
-    if (!s || typeof s !== 'object') return ''
+/** Format the last session summary as plain-text context injected when a session restarts. */
+export function formatSummaryAsContext(summaries: SessionSummary[]): string {
+  if (!summaries.length) return ''
 
-    const lines = ['Context from previous session:']
-    // Support both new (text) and old (summary array) format
-    if (s.text) {
-      lines.push(`  ${s.text}`)
-    } else if (Array.isArray(s.summary)) {
-      for (const item of s.summary) lines.push(`  • ${item}`)
-    }
-    if (s.modified_files?.length > 0) lines.push(`  Files: ${s.modified_files.join(', ')}`)
-    if (s.commits?.length > 0) lines.push(`  Commits: ${s.commits.join(', ')}`)
-    lines.push('\nPlease continue helping with the task.')
-    return lines.join('\n')
-  } catch {
-    return ''
-  }
+  // Only inject the most recent summary
+  const s = summaries[summaries.length - 1]
+  const date = (() => { try { return new Date(s.timestamp).toLocaleString() } catch { return s.timestamp } })()
+
+  const lines = [`Context from previous session (${date}):`]
+  if (s.text) lines.push(`  ${s.text}`)
+  if (s.modified_files?.length > 0) lines.push(`  Files: ${s.modified_files.join(', ')}`)
+  if (s.commits?.length > 0) lines.push(`  Commits: ${s.commits.join(', ')}`)
+  return lines.join('\n')
 }

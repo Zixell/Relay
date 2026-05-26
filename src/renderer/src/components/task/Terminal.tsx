@@ -133,14 +133,28 @@ export function Terminal({ task, className }: TerminalProps) {
     xterm.open(containerRef.current)
 
     xterm.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'v' && e.type === 'keydown') {
-        navigator.clipboard.readText().then((text) => {
-          if (text) xterm.paste(text)
-        })
-        return false
-      }
+      // Block Ctrl+V from being typed into xterm — paste is handled by the
+      // capture-phase paste listener below which fires before xterm's own handler
+      if (e.ctrlKey && e.key === 'v' && e.type === 'keydown') return false
       return true
     })
+
+    // Intercept paste in capture phase — fires BEFORE xterm's bubble-phase listener,
+    // so we call xterm.paste() exactly once and xterm never sees the raw event.
+    // Works for both Ctrl+V and right-click → Paste.
+    if (xterm.textarea) {
+      xterm.textarea.addEventListener('paste', (e) => {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        const text = e.clipboardData?.getData('text/plain')
+        if (text) {
+          xterm.paste(text)
+        } else {
+          // Fallback for environments where clipboardData is unavailable
+          navigator.clipboard.readText().then((t) => { if (t) xterm.paste(t) }).catch(() => {})
+        }
+      }, true /* capture */)
+    }
 
     xtermRef.current = xterm
     fitAddonRef.current = fitAddon

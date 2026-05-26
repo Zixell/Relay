@@ -6,12 +6,13 @@ import {
   getTaskById,
   getTaskEvents,
   getTerminalLogs,
+  getTaskSummaries,
   upsertProject,
   insertTask,
   insertTaskEvent,
   updateTaskStatus,
   updateTaskNotes,
-  updateTaskSummary,
+  appendTaskSummary,
   deleteTask
 } from '../db'
 import {
@@ -22,7 +23,7 @@ import {
   getActiveSessions,
   unlockTaskStatus
 } from '../pty/manager'
-import { getGitChanges, ensureBranch, getCurrentCommit } from '../git'
+import { getGitChanges, getFileDiff, ensureBranch, getCurrentCommit } from '../git'
 import { formatSummaryAsContext, isClaudeCliAvailable } from '../summary/generator'
 import { getSetting, setSetting, getSettingForClient } from '../settings'
 
@@ -97,8 +98,10 @@ export function registerIpcHandlers(): void {
       // Agent commands use one-shot/print flags so the process exits when the task is done,
       // allowing the task status to transition to Completed automatically.
       const agentShell = process.platform === 'win32' ? 'cmd.exe' : 'bash'
+      const skipPerms = getSetting('CLAUDE_SKIP_PERMISSIONS') !== 'false'
+      const claudeArgs = skipPerms ? ['--dangerously-skip-permissions'] : []
       const commands: Record<string, { cmd: string; args: string[] }> = {
-        'claude-code': { cmd: 'claude', args: ['--dangerously-skip-permissions'] },
+        'claude-code': { cmd: 'claude', args: claudeArgs },
         aider: { cmd: 'aider', args: ['--yes'] },
         opencode: { cmd: 'opencode', args: [] },
         generic: { cmd: agentShell, args: [] }
@@ -127,8 +130,13 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('tasks:updateSummary', (_, { id, summary }: { id: string; summary: string }) => {
-    updateTaskSummary(id, summary)
+    appendTaskSummary(id, summary)
     return { success: true }
+  })
+
+  ipcMain.handle('tasks:getSummaries', (_, taskId: string) => {
+    const rows = getTaskSummaries(taskId)
+    return rows.map((r) => ({ ...JSON.parse(r.summary_json), _created_at: r.created_at }))
   })
 
   ipcMain.handle('tasks:getEvents', (_, taskId: string) => getTaskEvents(taskId))
@@ -161,20 +169,17 @@ export function registerIpcHandlers(): void {
       // The user's typed chars are already in the PTY line buffer — appending the
       // context suffix before \r makes Claude receive them as one combined line.
       if (line && getSetting('AUTO_INJECT_CONTEXT') === 'true') {
-        const task = getTaskById(taskId) as { summary?: string; process_type?: string } | null
-        if (task?.summary && task.process_type !== 'generic') {
+        const task = getTaskById(taskId) as { process_type?: string } | null
+        if (task?.process_type && task.process_type !== 'generic') {
           try {
-            const s = JSON.parse(task.summary)
-            const ctx = JSON.stringify({
-              text: s.text,
-              summary: s.summary,
-              modified_files: s.modified_files,
-              commits: s.commits,
-              status: s.status
-            })
-            writeToPty(taskId, ` [relay_context: ${ctx}]\r`)
-            return true
-          } catch { /* malformed summary — fall through to plain \r */ }
+            const rows = getTaskSummaries(taskId)
+            if (rows.length > 0) {
+              const last = JSON.parse(rows[rows.length - 1].summary_json)
+              const summary = { text: last.text, modified_files: last.modified_files, commits: last.commits, status: last.status }
+              writeToPty(taskId, ` [relay_context: ${JSON.stringify(summary)}]\r`)
+              return true
+            }
+          } catch { /* malformed — fall through to plain \r */ }
         }
       }
     } else if (data === '\x7f' || data === '\b') {
@@ -212,19 +217,26 @@ export function registerIpcHandlers(): void {
 
     killPtySession(taskId)
 
+    const skipPermsRestart = getSetting('CLAUDE_SKIP_PERMISSIONS') !== 'false'
+    const claudeArgsRestart = skipPermsRestart ? ['--dangerously-skip-permissions'] : []
     const commands: Record<string, { cmd: string; args: string[] }> = {
-      'claude-code': { cmd: 'claude', args: ['--dangerously-skip-permissions'] },
+      'claude-code': { cmd: 'claude', args: claudeArgsRestart },
       aider: { cmd: 'aider', args: ['--yes'] },
       opencode: { cmd: 'opencode', args: [] },
       generic: { cmd: process.platform === 'win32' ? 'cmd.exe' : 'bash', args: [] }
     }
     const { cmd, args } = commands[task.process_type] ?? commands.generic
 
-    // Inject previous session summary as context on restart (only if setting is enabled)
+    // Inject all previous session summaries as context on restart (only if setting is enabled)
     const isAgent = task.process_type !== 'generic'
-    const contextPrompt = isAgent && task.summary && getSetting('AUTO_INJECT_CONTEXT') === 'true'
-      ? formatSummaryAsContext(task.summary)
-      : undefined
+    let contextPrompt: string | undefined
+    if (isAgent && getSetting('AUTO_INJECT_CONTEXT') === 'true') {
+      const summaryRows = getTaskSummaries(taskId)
+      if (summaryRows.length > 0) {
+        const summaries = summaryRows.map((r) => JSON.parse(r.summary_json))
+        contextPrompt = formatSummaryAsContext(summaries)
+      }
+    }
 
     createPtySession(taskId, cmd, args, task.project_path, undefined, contextPrompt, cols, rows)
 
@@ -250,5 +262,11 @@ export function registerIpcHandlers(): void {
     'git:getChanges',
     (_, { cwd, branch, startCommit }: { cwd: string; branch?: string; startCommit?: string }) =>
       getGitChanges(cwd, branch, startCommit)
+  )
+
+  ipcMain.handle(
+    'git:getFileDiff',
+    (_, { cwd, filePath, startCommit }: { cwd: string; filePath: string; startCommit?: string }) =>
+      getFileDiff(cwd, filePath, startCommit)
   )
 }

@@ -4,6 +4,7 @@ import { cn } from '../../lib/utils'
 import { getMockFileChanges } from '../../lib/mockData'
 import { useAppStore } from '../../stores/appStore'
 import type { FileChange, Task } from '../../types'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog'
 
 const isElectron = typeof window !== 'undefined' && !!window.api
 
@@ -25,6 +26,7 @@ export function FileChanges({ task }: FileChangesProps) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
+  const [diffFile, setDiffFile] = useState<FileChange | null>(null)
   const updateTask = useAppStore((s) => s.updateTask)
 
   const startCommit: string | undefined = (() => {
@@ -161,7 +163,7 @@ export function FileChanges({ task }: FileChangesProps) {
       {files.length > 0 ? (
         <div className="space-y-0.5">
           {files.map((file) => (
-            <FileRow key={file.path} file={file} />
+            <FileRow key={file.path} file={file} onDoubleClick={() => setDiffFile(file)} />
           ))}
         </div>
       ) : (
@@ -169,17 +171,31 @@ export function FileChanges({ task }: FileChangesProps) {
           Working tree clean
         </div>
       )}
+
+      {diffFile && (
+        <FileDiffModal
+          file={diffFile}
+          cwd={task.project_path}
+          startCommit={startCommit}
+          open={!!diffFile}
+          onClose={() => setDiffFile(null)}
+        />
+      )}
     </div>
   )
 }
 
-function FileRow({ file }: { file: FileChange }) {
+function FileRow({ file, onDoubleClick }: { file: FileChange; onDoubleClick: () => void }) {
   const Icon = FILE_ICONS[file.type]
   const total = (file.additions ?? 0) + (file.deletions ?? 0)
   const addRatio = total > 0 ? (file.additions ?? 0) / total : 0
 
   return (
-    <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors group">
+    <div
+      className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors group cursor-pointer select-none"
+      onDoubleClick={onDoubleClick}
+      title="Double-click to view diff"
+    >
       <Icon className={cn('w-3.5 h-3.5 shrink-0', FILE_COLORS[file.type])} />
       <span className="text-xs font-mono text-zinc-300 flex-1 truncate min-w-0">{file.path}</span>
       <div className="flex items-center gap-1.5 shrink-0">
@@ -197,6 +213,174 @@ function FileRow({ file }: { file: FileChange }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Diff modal ─────────────────────────────────────────────────────────────────
+
+interface DiffLine {
+  type: 'header' | 'meta' | 'hunk' | 'add' | 'del' | 'ctx'
+  content: string
+  oldLine?: number
+  newLine?: number
+}
+
+function parseDiff(raw: string): DiffLine[] {
+  const result: DiffLine[] = []
+  let oldLine = 0
+  let newLine = 0
+  for (const line of raw.split('\n')) {
+    if (
+      line.startsWith('diff --git') ||
+      line.startsWith('index ') ||
+      line.startsWith('new file') ||
+      line.startsWith('deleted file') ||
+      line.startsWith('old mode') ||
+      line.startsWith('new mode')
+    ) {
+      result.push({ type: 'header', content: line })
+    } else if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+      result.push({ type: 'meta', content: line })
+    } else if (line.startsWith('@@ ')) {
+      const m = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+      if (m) { oldLine = parseInt(m[1]); newLine = parseInt(m[2]) }
+      result.push({ type: 'hunk', content: line })
+    } else if (line.startsWith('+')) {
+      result.push({ type: 'add', content: line.slice(1), newLine: newLine++ })
+    } else if (line.startsWith('-')) {
+      result.push({ type: 'del', content: line.slice(1), oldLine: oldLine++ })
+    } else {
+      result.push({ type: 'ctx', content: line.startsWith(' ') ? line.slice(1) : line, oldLine: oldLine++, newLine: newLine++ })
+    }
+  }
+  // Trim trailing empty context lines
+  while (result.length && result[result.length - 1].type === 'ctx' && !result[result.length - 1].content.trim()) {
+    result.pop()
+  }
+  return result
+}
+
+interface FileDiffModalProps {
+  file: FileChange
+  cwd: string
+  startCommit?: string
+  open: boolean
+  onClose: () => void
+}
+
+function FileDiffModal({ file, cwd, startCommit, open, onClose }: FileDiffModalProps) {
+  const [diff, setDiff] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    setDiff(null)
+    if (!isElectron) { setLoading(false); return }
+    window.api.git.getFileDiff(cwd, file.path, startCommit)
+      .then((d: string) => setDiff(d))
+      .catch(() => setDiff(null))
+      .finally(() => setLoading(false))
+  }, [open, file.path, cwd, startCommit])
+
+  const lines = diff ? parseDiff(diff) : []
+  const adds = lines.filter((l) => l.type === 'add').length
+  const dels = lines.filter((l) => l.type === 'del').length
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-5xl w-[90vw] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+        {/* Header */}
+        <DialogHeader className="px-5 py-4 border-b border-white/[0.06] shrink-0">
+          <div className="flex items-center gap-3 pr-8">
+            <DialogTitle className="font-mono text-sm text-zinc-200 truncate">{file.path}</DialogTitle>
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
+              {adds > 0 && <span className="text-[11px] font-mono text-emerald-400">+{adds}</span>}
+              {dels > 0 && <span className="text-[11px] font-mono text-red-400">-{dels}</span>}
+              <span className={cn(
+                'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                file.type === 'added' ? 'bg-emerald-500/10 text-emerald-400' :
+                file.type === 'deleted' ? 'bg-red-500/10 text-red-400' :
+                file.type === 'renamed' ? 'bg-amber-500/10 text-amber-400' :
+                'bg-blue-500/10 text-blue-400'
+              )}>
+                {file.type}
+              </span>
+            </div>
+          </div>
+          <DialogDescription className="text-[11px] text-zinc-600 mt-0.5">
+            Double-click any file row to view its diff
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Diff content */}
+        <div className="flex-1 overflow-auto bg-[#0a0a0a]">
+          {loading ? (
+            <div className="flex items-center justify-center h-32 text-xs text-zinc-600">Loading diff…</div>
+          ) : lines.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-xs text-zinc-600">No diff available</div>
+          ) : (
+            <table className="w-full border-collapse text-[11px] font-mono">
+              <tbody>
+                {lines.map((line, i) => <DiffLineRow key={i} line={line} />)}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DiffLineRow({ line }: { line: DiffLine }) {
+  if (line.type === 'header' || line.type === 'meta') {
+    return (
+      <tr className="bg-zinc-950">
+        <td colSpan={4} className="px-4 py-0.5 text-zinc-600 text-[10px] select-none">{line.content}</td>
+      </tr>
+    )
+  }
+  if (line.type === 'hunk') {
+    return (
+      <tr className="bg-blue-950/30 border-y border-blue-900/40">
+        <td colSpan={4} className="px-4 py-1 text-blue-400 text-[10px] select-none">{line.content}</td>
+      </tr>
+    )
+  }
+
+  const isAdd = line.type === 'add'
+  const isDel = line.type === 'del'
+
+  return (
+    <tr className={cn(
+      'group',
+      isAdd && 'bg-emerald-950/30 hover:bg-emerald-950/50',
+      isDel && 'bg-red-950/30 hover:bg-red-950/50',
+      !isAdd && !isDel && 'hover:bg-white/[0.02]'
+    )}>
+      {/* Old line number */}
+      <td className="w-10 text-right pr-3 text-zinc-600 select-none border-r border-white/[0.04] bg-black/20 leading-5 align-top py-0.5">
+        {line.oldLine !== undefined ? line.oldLine : ''}
+      </td>
+      {/* New line number */}
+      <td className="w-10 text-right pr-3 text-zinc-600 select-none border-r border-white/[0.04] bg-black/20 leading-5 align-top py-0.5">
+        {line.newLine !== undefined ? line.newLine : ''}
+      </td>
+      {/* +/- prefix */}
+      <td className={cn(
+        'w-5 text-center select-none leading-5 align-top py-0.5',
+        isAdd ? 'text-emerald-500' : isDel ? 'text-red-500' : 'text-zinc-700'
+      )}>
+        {isAdd ? '+' : isDel ? '-' : ' '}
+      </td>
+      {/* Line content */}
+      <td className={cn(
+        'px-3 leading-5 whitespace-pre py-0.5 align-top',
+        isAdd ? 'text-emerald-200' : isDel ? 'text-red-300' : 'text-zinc-400'
+      )}>
+        {line.content || ' '}
+      </td>
+    </tr>
   )
 }
 

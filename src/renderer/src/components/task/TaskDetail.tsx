@@ -34,7 +34,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>('terminal')
   const [notes, setNotes] = useState(task.notes ?? '')
   const [notesSaved, setNotesSaved] = useState(false)
-  const [summaryJson, setSummaryJson] = useState(task.summary ?? '')
+  const [summaries, setSummaries] = useState<SessionSummaryEntry[]>([])
   const [isStopping, setIsStopping] = useState(false)
   const selectTask = useAppStore((s) => s.selectTask)
   const updateTask = useAppStore((s) => s.updateTask)
@@ -44,10 +44,14 @@ export function TaskDetail({ task }: TaskDetailProps) {
     setNotes(task.notes ?? '')
   }, [task.id, task.notes])
 
-  // Sync summary JSON from task store
+  // Load full summary history when task changes
   useEffect(() => {
-    setSummaryJson(task.summary ?? '')
-  }, [task.id, task.summary])
+    setSummaries([])
+    if (!isElectron) return
+    window.api.tasks.getSummaries(task.id).then((list: SessionSummaryEntry[]) => {
+      if (list?.length) setSummaries(list)
+    }).catch(() => {})
+  }, [task.id])
 
   // Eagerly fetch file count so the Files tab label is correct on first render
   useEffect(() => {
@@ -62,12 +66,15 @@ export function TaskDetail({ task }: TaskDetailProps) {
     }).catch(() => {})
   }, [task.id, task.project_path, task.branch])
 
-  // Live summary updates from PTY
+  // Live summary updates from PTY — receives full array JSON
   useEffect(() => {
     if (!isElectron || !window.api.pty.onSummary) return
-    const unsub = window.api.pty.onSummary(task.id, (newSummaryJson) => {
-      setSummaryJson(newSummaryJson)
-      updateTask(task.id, { summary: newSummaryJson, updated_at: Math.floor(Date.now() / 1000) })
+    const unsub = window.api.pty.onSummary(task.id, (allSummariesJson) => {
+      try {
+        const list: SessionSummaryEntry[] = JSON.parse(allSummariesJson)
+        if (Array.isArray(list)) setSummaries(list)
+      } catch { /* ignore malformed */ }
+      updateTask(task.id, { updated_at: Math.floor(Date.now() / 1000) })
     })
     return unsub
   }, [task.id, updateTask])
@@ -208,7 +215,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
             { id: 'timeline', label: 'Timeline' },
             { id: 'files', label: `Files (${task.changed_files_count})` },
             { id: 'notes', label: 'Notes' },
-            { id: 'summary', label: 'Summary' }
+            { id: 'summary', label: summaries.length > 0 ? `Summary (${summaries.length})` : 'Summary' }
           ] as { id: DetailTab; label: string }[]
         ).map((tab) => (
           <button
@@ -275,7 +282,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
 
         {activeTab === 'summary' && (
           <div className="h-full overflow-y-auto px-6 py-4">
-            <SessionSummaryList summaryJson={summaryJson} />
+            <SessionSummaryList summaries={summaries} />
           </div>
         )}
       </div>
@@ -345,23 +352,15 @@ function StatItem({ icon, label }: { icon: React.ReactNode; label: string }) {
 interface SessionSummaryEntry {
   session_id: string
   timestamp: string
-  text?: string           // new format: prose paragraph
-  summary?: string[]      // legacy format: bullet array
+  text?: string
+  summary?: string[]      // legacy format
   modified_files: string[]
   commits: string[]
   status: 'completed' | 'waiting'
 }
 
-function SessionSummaryList({ summaryJson }: { summaryJson: string }) {
-  let s: SessionSummaryEntry | null = null
-  try {
-    if (summaryJson) {
-      const parsed = JSON.parse(summaryJson)
-      s = Array.isArray(parsed) ? parsed[0] ?? null : parsed
-    }
-  } catch { /* invalid json */ }
-
-  if (!s) {
+function SessionSummaryList({ summaries }: { summaries: SessionSummaryEntry[] }) {
+  if (!summaries.length) {
     return (
       <div className="flex flex-col items-center justify-center h-48 gap-2 text-zinc-600">
         <CheckCircle2 className="w-6 h-6 opacity-30" />
@@ -371,70 +370,78 @@ function SessionSummaryList({ summaryJson }: { summaryJson: string }) {
     )
   }
 
-  const date = (() => { try { return new Date(s.timestamp).toLocaleString() } catch { return s.timestamp } })()
-  const isCompleted = s.status === 'completed'
-
-  // Resolve display text: new prose format or legacy bullet array
-  const prosText: string | null = s.text ?? null
-  const bulletItems: string[] = (!prosText && Array.isArray(s.summary)) ? s.summary : []
+  // Show newest first
+  const ordered = [...summaries].reverse()
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        {isCompleted
-          ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          : <PauseCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-        <span className={cn('text-[11px] font-medium', isCompleted ? 'text-emerald-400' : 'text-amber-400')}>
-          {isCompleted ? 'Completed' : 'Waiting for input'}
-        </span>
-        <span className="text-[11px] text-zinc-600 ml-auto">{date}</span>
-      </div>
+    <div className="flex flex-col gap-3">
+      {ordered.map((s, i) => {
+        const date = (() => { try { return new Date(s.timestamp).toLocaleString() } catch { return s.timestamp } })()
+        const isCompleted = s.status === 'completed'
+        const sessionNumber = summaries.length - i
 
-      {/* Prose summary (new format) */}
-      {prosText && (
-        <p className="text-sm text-zinc-200 leading-relaxed">{prosText}</p>
-      )}
-
-      {/* Legacy bullet list */}
-      {bulletItems.length > 0 && (
-        <ul className="flex flex-col gap-1.5">
-          {bulletItems.map((item, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs text-zinc-300">
-              <span className="mt-1.5 w-1 h-1 rounded-full bg-zinc-500 shrink-0" />
-              {item}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Files */}
-      {s.modified_files?.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">Modified files</span>
-          <div className="flex flex-wrap gap-1.5">
-            {s.modified_files.map((f) => (
-              <span key={f} className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400 bg-white/[0.04] border border-white/[0.06]">
-                {f}
+        return (
+          <div key={s.session_id ?? i} className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 flex flex-col gap-4">
+            {/* Header */}
+            <div className="flex items-center gap-2">
+              {isCompleted
+                ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                : <PauseCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+              <span className={cn('text-[11px] font-medium', isCompleted ? 'text-emerald-400' : 'text-amber-400')}>
+                {isCompleted ? 'Completed' : 'Waiting for input'}
               </span>
-            ))}
-          </div>
-        </div>
-      )}
+              <span className="text-[11px] text-zinc-700">·</span>
+              <span className="text-[11px] text-zinc-600">Session {sessionNumber}</span>
+              <span className="text-[11px] text-zinc-600 ml-auto">{date}</span>
+            </div>
 
-      {/* Commits */}
-      {s.commits?.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <GitCommit className="w-3 h-3 text-zinc-600 shrink-0" />
-          {s.commits.map((c) => (
-            <span key={c} className="text-[10px] font-mono text-zinc-500">{c}</span>
-          ))}
-        </div>
-      )}
+            {/* Prose summary */}
+            {s.text && (
+              <p className="text-sm text-zinc-200 leading-relaxed">{s.text}</p>
+            )}
+
+            {/* Legacy bullet list */}
+            {!s.text && Array.isArray(s.summary) && s.summary.length > 0 && (
+              <ul className="flex flex-col gap-1.5">
+                {s.summary.map((item, j) => (
+                  <li key={j} className="flex items-start gap-2 text-xs text-zinc-300">
+                    <span className="mt-1.5 w-1 h-1 rounded-full bg-zinc-500 shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* Files */}
+            {s.modified_files?.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">Modified files</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {s.modified_files.map((f) => (
+                    <span key={f} className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400 bg-white/[0.04] border border-white/[0.06]">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Commits */}
+            {s.commits?.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <GitCommit className="w-3 h-3 text-zinc-600 shrink-0" />
+                {s.commits.map((c) => (
+                  <span key={c} className="text-[10px] font-mono text-zinc-500">{c}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
 
       {/* Context hint */}
-      <p className="text-[10px] text-zinc-700 pt-1 border-t border-white/[0.04]">
-        Automatically appended to every terminal message as <span className="font-mono">[relay_context]</span>
+      <p className="text-[10px] text-zinc-700 pb-2">
+        Last session is injected as <span className="font-mono">[relay_context]</span> when the agent restarts
       </p>
     </div>
   )

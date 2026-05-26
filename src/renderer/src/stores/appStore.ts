@@ -103,7 +103,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       const tasks: Task[] = await window.api.tasks.getAll()
       if (tasks.length) {
         const deduped = tasks.filter((t, i, arr) => arr.findIndex((x) => x.id === t.id) === i)
-        set({ tasks: deduped })
+        set((s) => ({
+          tasks: deduped.map((t) => {
+            const existing = s.tasks.find((e) => e.id === t.id)
+            // Preserve in-memory changed_files_count — DB value is stale (updated lazily)
+            return existing && existing.changed_files_count > t.changed_files_count
+              ? { ...t, changed_files_count: existing.changed_files_count }
+              : t
+          })
+        }))
       }
     } catch {
       // ignore

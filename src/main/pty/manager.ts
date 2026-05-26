@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron'
-import { insertTerminalLog, updateTaskStatus, getTaskById, updateTaskSummary, getTaskEvents, getTerminalLogs } from '../db'
+import { insertTerminalLog, updateTaskStatus, getTaskById, appendTaskSummary, getTaskSummaries, getTaskEvents, getTerminalLogs } from '../db'
 import { generateSessionSummary } from '../summary/generator'
 
 // Lazy-load node-pty so a missing native binding doesn't crash the whole app
@@ -26,36 +26,20 @@ const completionWatchers = new Map<string, ReturnType<typeof setInterval>>()
 
 // --- Inactivity-based status management ---
 const inactivityTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const outputBuffers = new Map<string, string>()
 // Track last emitted status to avoid redundant updates
 const sessionStatuses = new Map<string, string>()
-// Tasks locked in completed/waiting — won't revert to running until user sends a new prompt
+// Tasks locked in completed state — won't revert to running until user sends a new prompt
 const lockedStatuses = new Set<string>()
 
 const INACTIVITY_MS = 15_000
 // Strips standard CSI sequences (including private ?/!/< prefixes), OSC, DCS, SOS/PM/APC, character-set designators, and bare Fe sequences
 const ANSI_RE = /\x1b(?:\[[0-9;?!<>]*[a-zA-Z@]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[PX^_][^\x1b]*\x1b\\|[()][0-9A-Za-z]|[=>NOMc])/g
 
-function stripAnsi(s: string): string {
-  return s.replace(ANSI_RE, '').replace(/\r/g, '')
-}
-
-/** Returns true if the output contains a Claude Code completion line like "Crunched for 1m 33s" / "⏺ for 45s" */
-function isCompletedOutput(raw: string): boolean {
-  const text = stripAnsi(raw)
-  // Primary: timing suffix that Claude Code always emits at session end
-  // Allow optional whitespace between time components (e.g. "1m10s" or "1m 10s")
-  if (/\bfor\s+(\d+h\s*)?(\d+m\s*)?\d+s\b/.test(text)) return true
-  // Secondary: keyword variants ("Crunched", "Cooked") — catches formatting changes
-  if (/[Cc]runched|[Cc]ooked/.test(text)) return true
-  return false
-}
-
-function emitStatusChange(taskId: string, status: 'running' | 'waiting' | 'completed'): void {
+function emitStatusChange(taskId: string, status: 'running' | 'completed'): void {
   const prev = sessionStatuses.get(taskId)
   if (prev === status) return
   sessionStatuses.set(taskId, status)
-  if (status === 'completed' || status === 'waiting') {
+  if (status === 'completed') {
     lockedStatuses.add(taskId)
   }
   updateTaskStatus(taskId, status)
@@ -69,8 +53,7 @@ function scheduleInactivityCheck(taskId: string): void {
     inactivityTimers.delete(taskId)
     if (!sessions.has(`pty-${taskId}`)) return
 
-    const buf = outputBuffers.get(taskId) ?? ''
-    const newStatus = isCompletedOutput(buf) ? 'completed' : 'waiting'
+    const newStatus = 'completed' as const
     emitStatusChange(taskId, newStatus)
 
     // Regenerate the single task summary from all user prompts + git changes
@@ -107,8 +90,9 @@ function scheduleInactivityCheck(taskId: string): void {
       )
 
       const json = JSON.stringify(summary)
-      updateTaskSummary(taskId, json)
-      BrowserWindow.getAllWindows()[0]?.webContents.send(`pty:summary:${taskId}`, json)
+      appendTaskSummary(taskId, json)
+      const allSummaries = getTaskSummaries(taskId).map((r) => JSON.parse(r.summary_json))
+      BrowserWindow.getAllWindows()[0]?.webContents.send(`pty:summary:${taskId}`, JSON.stringify(allSummaries))
     } catch (err) {
       console.warn('[relay] Failed to generate session summary:', err)
     }
@@ -119,7 +103,6 @@ function scheduleInactivityCheck(taskId: string): void {
 function clearInactivityTracking(taskId: string): void {
   const t = inactivityTimers.get(taskId)
   if (t) { clearTimeout(t); inactivityTimers.delete(taskId) }
-  outputBuffers.delete(taskId)
   sessionStatuses.delete(taskId)
   lockedStatuses.delete(taskId)
 }
@@ -210,11 +193,7 @@ export function createPtySession(
 
     // Inactivity-based status tracking (only for agent sessions)
     if (isAgent) {
-      // Accumulate recent output (keep last 8 KB for completion detection)
-      const prev = outputBuffers.get(taskId) ?? ''
-      const next = (prev + data).slice(-8192)
-      outputBuffers.set(taskId, next)
-      // Skip status/timer updates while status is locked (completed/waiting) —
+      // Skip status/timer updates while status is locked (completed) —
       // status will unlock only when the user sends a new prompt
       if (!lockedStatuses.has(taskId)) {
         emitStatusChange(taskId, 'running')
@@ -275,29 +254,23 @@ export function createPtySession(
           if (!promptSent) lastOutput = Date.now()
         })
 
+        const sendPrompt = () => {
+          if (promptSent || !sessions.has(sessionId)) return
+          promptSent = true
+          clearInterval(checkInterval)
+          outputWatcher.dispose()
+          writeLarge(ptyProcess, initialPrompt, 64, 25, () => {
+            if (sessions.has(sessionId)) ptyProcess.write('\r')
+          })
+        }
+
         const checkInterval = setInterval(() => {
           if (promptSent) { clearInterval(checkInterval); return }
-          if (Date.now() - lastOutput >= 600) {
-            promptSent = true
-            clearInterval(checkInterval)
-            outputWatcher.dispose()
-            if (sessions.has(sessionId)) writeLarge(ptyProcess, initialPrompt, 64, 25, () => {
-              if (sessions.has(sessionId)) ptyProcess.write('\r')
-            })
-          }
+          if (Date.now() - lastOutput >= 1500) sendPrompt()
         }, 100)
 
-        // Hard fallback: send after 8 s regardless
-        setTimeout(() => {
-          if (!promptSent) {
-            promptSent = true
-            clearInterval(checkInterval)
-            outputWatcher.dispose()
-            if (sessions.has(sessionId)) writeLarge(ptyProcess, initialPrompt, 64, 25, () => {
-              if (sessions.has(sessionId)) ptyProcess.write('\r')
-            })
-          }
-        }, 8000)
+        // Hard fallback: send after 30 s regardless (covers very slow first-time startups)
+        setTimeout(sendPrompt, 30_000)
       }
     }
 
@@ -355,7 +328,6 @@ export function killAllSessions(): void {
   completionWatchers.clear()
   for (const timer of inactivityTimers.values()) clearTimeout(timer)
   inactivityTimers.clear()
-  outputBuffers.clear()
   sessionStatuses.clear()
   lockedStatuses.clear()
   for (const [sessionId, session] of sessions) {

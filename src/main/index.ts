@@ -13,7 +13,6 @@ function waitAndLoadURL(win: BrowserWindow, url: string, retries = 20, delay = 3
     const req = net.request(url)
     req.on('response', () => {
       win.loadURL(url)
-      win.webContents.openDevTools({ mode: 'detach' })
     })
     req.on('error', () => {
       if (retries-- > 0) setTimeout(attempt, delay)

@@ -66,6 +66,13 @@ function createSchema(): void {
       timestamp INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS task_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      summary_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -74,6 +81,14 @@ function createSchema(): void {
 
   // Migrate existing databases — ignore errors if column already exists
   try { db.exec('ALTER TABLE tasks ADD COLUMN summary TEXT') } catch { /* already exists */ }
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS task_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      summary_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )`)
+  } catch { /* already exists */ }
 }
 
 // --- Project queries ---
@@ -181,6 +196,19 @@ export function updateTaskNotes(id: string, notes: string) {
 export function updateTaskSummary(id: string, summary: string) {
   if (!db) return
   db.prepare('UPDATE tasks SET summary = ?, updated_at = unixepoch() WHERE id = ?').run(summary, id)
+}
+
+/** Append a new summary entry to task_summaries and update tasks.summary with the latest. */
+export function appendTaskSummary(taskId: string, summaryJson: string) {
+  if (!db) return
+  db.prepare('INSERT INTO task_summaries (task_id, summary_json) VALUES (?, ?)').run(taskId, summaryJson)
+  db.prepare('UPDATE tasks SET summary = ?, updated_at = unixepoch() WHERE id = ?').run(summaryJson, taskId)
+}
+
+/** Return all summaries for a task ordered oldest → newest. */
+export function getTaskSummaries(taskId: string): Array<{ id: number; task_id: string; summary_json: string; created_at: number }> {
+  if (!db) return []
+  return db.prepare('SELECT * FROM task_summaries WHERE task_id = ? ORDER BY created_at ASC').all(taskId) as Array<{ id: number; task_id: string; summary_json: string; created_at: number }>
 }
 
 // --- Settings ---

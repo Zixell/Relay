@@ -117,6 +117,17 @@ export function getCurrentCommit(cwd: string): string {
   return run('git rev-parse HEAD', cwd)
 }
 
+/** Return unified diff for a single file since startCommit (or HEAD) vs working tree */
+export function getFileDiff(cwd: string, filePath: string, startCommit?: string): string {
+  const hasValid = startCommit ? git(['cat-file', '-e', startCommit], cwd).success : false
+  const base = hasValid ? startCommit! : 'HEAD'
+  const escaped = filePath.replace(/"/g, '\\"')
+  return (
+    run(`git diff ${base} -- "${escaped}"`, cwd) ||
+    run(`git diff --cached ${base} -- "${escaped}"`, cwd)
+  )
+}
+
 export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: string): GitChangesResult {
   const empty: GitChangesResult = {
     isGitRepo: false,
@@ -206,6 +217,9 @@ export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: st
       const y = line[1]
       const rest = line.slice(3)
 
+      // Skip untracked files — only show git-indexed changes
+      if (x === '?' && y === '?') continue
+
       let type: GitFileChange['type'] = 'modified'
       let path = rest.replace(/^"|"$/g, '')
 
@@ -213,7 +227,7 @@ export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: st
         type = 'renamed'
         const arrowIdx = rest.indexOf(' -> ')
         if (arrowIdx !== -1) path = rest.slice(arrowIdx + 4).replace(/^"|"$/g, '')
-      } else if (x === 'A' || y === 'A' || (x === '?' && y === '?')) {
+      } else if (x === 'A' || y === 'A') {
         type = 'added'
       } else if (x === 'D' || y === 'D') {
         type = 'deleted'

@@ -44,6 +44,7 @@ const api = {
       ipcRenderer.invoke('tasks:updateSummary', data),
     getEvents: (taskId: string) => ipcRenderer.invoke('tasks:getEvents', taskId),
     getLogs: (taskId: string) => ipcRenderer.invoke('tasks:getLogs', taskId),
+    getSummaries: (taskId: string) => ipcRenderer.invoke('tasks:getSummaries', taskId),
     onEvent: (taskId: string, callback: (event: unknown) => void) => {
       const listener = (_: Electron.IpcRendererEvent, event: unknown) => callback(event)
       ipcRenderer.on(`tasks:event:${taskId}`, listener)
@@ -62,7 +63,9 @@ const api = {
   // Git
   git: {
     getChanges: (cwd: string, branch?: string, startCommit?: string) =>
-      ipcRenderer.invoke('git:getChanges', { cwd, branch, startCommit })
+      ipcRenderer.invoke('git:getChanges', { cwd, branch, startCommit }),
+    getFileDiff: (cwd: string, filePath: string, startCommit?: string) =>
+      ipcRenderer.invoke('git:getFileDiff', { cwd, filePath, startCommit })
   },
 
   // PTY

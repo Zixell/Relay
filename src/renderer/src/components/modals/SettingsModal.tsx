@@ -19,6 +19,7 @@ interface SettingsModalProps {
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [claudeAvailable, setClaudeAvailable] = useState<boolean | null>(null)
   const [autoInjectContext, setAutoInjectContext] = useState(false)
+  const [skipPermissions, setSkipPermissions] = useState(true)
 
   useEffect(() => {
     if (!open || !isElectron) return
@@ -28,14 +29,22 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     window.api.settings.get('AUTO_INJECT_CONTEXT').then((val: string) => {
       setAutoInjectContext(val === 'true')
     })
+    window.api.settings.get('CLAUDE_SKIP_PERMISSIONS').then((val: string) => {
+      // default true — matches original behaviour
+      setSkipPermissions(val !== 'false')
+    })
   }, [open])
 
   function toggleAutoInjectContext() {
     const next = !autoInjectContext
     setAutoInjectContext(next)
-    if (isElectron) {
-      window.api.settings.set('AUTO_INJECT_CONTEXT', String(next))
-    }
+    if (isElectron) window.api.settings.set('AUTO_INJECT_CONTEXT', String(next))
+  }
+
+  function toggleSkipPermissions() {
+    const next = !skipPermissions
+    setSkipPermissions(next)
+    if (isElectron) window.api.settings.set('CLAUDE_SKIP_PERMISSIONS', String(next))
   }
 
   return (
@@ -148,6 +157,41 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   task — recent changes, commits, and status — to each message you send and on
                   session restart. This gives the agent continuity across prompts without you
                   having to repeat context manually.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="h-px bg-white/[0.05]" />
+
+          {/* Claude launch options */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="text-sm font-medium text-zinc-200">Claude Launch Options</span>
+            </div>
+
+            <div className="flex items-start gap-3 px-3 py-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+              <button
+                role="checkbox"
+                aria-checked={skipPermissions}
+                onClick={toggleSkipPermissions}
+                className={cn(
+                  'relative mt-0.5 w-8 h-[18px] rounded-full transition-colors duration-200 shrink-0 focus:outline-none',
+                  skipPermissions ? 'bg-violet-500' : 'bg-zinc-700'
+                )}
+              >
+                <span className={cn(
+                  'absolute top-[2px] left-[2px] w-[14px] h-[14px] bg-white rounded-full shadow transition-transform duration-200',
+                  skipPermissions ? 'translate-x-[14px]' : 'translate-x-0'
+                )} />
+              </button>
+              <div>
+                <p className="text-xs font-medium text-zinc-200 leading-snug">Skip permissions bypass</p>
+                <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+                  Passes <span className="font-mono text-zinc-400">--dangerously-skip-permissions</span> when
+                  launching Claude. Disable if you prefer Claude to ask for confirmation before
+                  making file changes. Takes effect on the next session start or restart.
                 </p>
               </div>
             </div>
