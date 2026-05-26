@@ -1,0 +1,227 @@
+import React from 'react'
+import {
+  GitBranch,
+  Clock,
+  FileCode,
+  Play,
+  ChevronRight,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  PauseCircle,
+  MessageSquare,
+  Folder
+} from 'lucide-react'
+import { cn, formatDuration, formatRelativeTime, truncatePath } from '../../lib/utils'
+import { STATUS_CONFIG, PROCESS_LABELS, PROCESS_COLORS, type Task } from '../../types'
+import { Badge } from '../ui/badge'
+import { Button } from '../ui/button'
+import { MOCK_TERMINAL_LOGS } from '../../lib/mockData'
+import { useAppStore } from '../../stores/appStore'
+
+interface TaskCardProps {
+  task: Task
+}
+
+export function TaskCard({ task }: TaskCardProps) {
+  const selectTask = useAppStore((s) => s.selectTask)
+  const statusCfg = STATUS_CONFIG[task.status]
+  const processColor = PROCESS_COLORS[task.process_type]
+
+  const logPreview = MOCK_TERMINAL_LOGS[task.id]?.slice(-300) ?? ''
+  const logLines = logPreview
+    .replace(/\x1b\[[0-9;]*m/g, '') // strip ansi
+    .trim()
+    .split('\n')
+    .slice(-3)
+    .join('\n')
+
+  return (
+    <div
+      className={cn(
+        'group relative rounded-xl border bg-[#111] transition-all duration-200 cursor-pointer overflow-hidden',
+        'hover:border-white/[0.12] hover:bg-[#131313] hover:shadow-lg hover:shadow-black/30',
+        task.status === 'running'
+          ? 'border-white/[0.09]'
+          : task.status === 'failed'
+            ? 'border-red-500/10'
+            : task.status === 'waiting'
+              ? 'border-amber-500/10'
+              : 'border-white/[0.06]'
+      )}
+      onClick={() => selectTask(task.id)}
+    >
+      {/* Running accent bar */}
+      {task.status === 'running' && (
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500/60 via-emerald-400 to-emerald-500/60" />
+      )}
+      {task.status === 'waiting' && (
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-amber-500/60" />
+      )}
+      {task.status === 'failed' && (
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-red-500/40" />
+      )}
+
+      <div className="p-4">
+        {/* Header row */}
+        <div className="flex items-start gap-3 mb-3">
+          {/* Status icon */}
+          <div className="mt-0.5 shrink-0">
+            <StatusIcon status={task.status} />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-sm font-semibold text-zinc-100 leading-snug line-clamp-2 group-hover:text-white transition-colors">
+                {task.title}
+              </h3>
+              <ChevronRight className="w-4 h-4 text-zinc-600 mt-0.5 shrink-0 group-hover:text-zinc-400 transition-colors" />
+            </div>
+
+            {/* Meta row */}
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+              {/* Project */}
+              <div className="flex items-center gap-1 text-[11px] text-zinc-500">
+                <Folder className="w-3 h-3" />
+                <span>{task.project_name}</span>
+              </div>
+
+              {/* Process type */}
+              <div className="flex items-center gap-1 text-[11px]" style={{ color: processColor }}>
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: processColor }}
+                />
+                <span>{PROCESS_LABELS[task.process_type]}</span>
+              </div>
+
+              {/* Branch */}
+              {task.branch && (
+                <div className="flex items-center gap-1 text-[11px] text-zinc-500">
+                  <GitBranch className="w-3 h-3" />
+                  <span className="font-mono truncate max-w-[120px]">{task.branch}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-4 mb-3">
+          <StatChip
+            icon={<Clock className="w-3 h-3" />}
+            value={formatDuration(task.runtime_seconds)}
+          />
+          {task.changed_files_count > 0 && (
+            <StatChip
+              icon={<FileCode className="w-3 h-3" />}
+              value={`${task.changed_files_count} files`}
+            />
+          )}
+          <StatChip
+            icon={<Clock className="w-3 h-3" />}
+            value={formatRelativeTime(task.updated_at)}
+            className="ml-auto"
+          />
+          <Badge variant={task.status} className="text-[10px] px-1.5 py-0.5">
+            <span
+              className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                task.status === 'running' && 'animate-pulse',
+                statusCfg.dot
+              )}
+            />
+            {statusCfg.label}
+          </Badge>
+        </div>
+
+        {/* Terminal preview */}
+        {logLines && (
+          <div className="rounded-lg bg-black/40 border border-white/[0.04] px-3 py-2 mb-3 overflow-hidden">
+            <pre className="text-[10px] font-mono text-zinc-500 leading-relaxed whitespace-pre-wrap line-clamp-3">
+              {logLines}
+            </pre>
+          </div>
+        )}
+
+        {/* Action row */}
+        <div className="flex items-center gap-2">
+          {(task.status === 'paused' || task.status === 'completed' || task.status === 'failed') && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-[11px] gap-1"
+              onClick={(e) => {
+                e.stopPropagation()
+                selectTask(task.id)
+              }}
+            >
+              <Play className="w-3 h-3" />
+              Resume
+            </Button>
+          )}
+          {task.status === 'waiting' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-[11px] gap-1 border-amber-500/20 text-amber-400 hover:bg-amber-500/10"
+              onClick={(e) => {
+                e.stopPropagation()
+                selectTask(task.id)
+              }}
+            >
+              <MessageSquare className="w-3 h-3" />
+              Respond
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2.5 text-[11px] gap-1 ml-auto"
+            onClick={(e) => {
+              e.stopPropagation()
+              selectTask(task.id)
+            }}
+          >
+            Open
+            <ChevronRight className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StatusIcon({ status }: { status: Task['status'] }) {
+  switch (status) {
+    case 'running':
+      return <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+    case 'waiting':
+      return <MessageSquare className="w-4 h-4 text-amber-400" />
+    case 'completed':
+      return <CheckCircle2 className="w-4 h-4 text-blue-400" />
+    case 'failed':
+      return <AlertCircle className="w-4 h-4 text-red-400" />
+    case 'paused':
+      return <PauseCircle className="w-4 h-4 text-zinc-500" />
+    default:
+      return <Clock className="w-4 h-4 text-zinc-600" />
+  }
+}
+
+function StatChip({
+  icon,
+  value,
+  className
+}: {
+  icon: React.ReactNode
+  value: string
+  className?: string
+}) {
+  return (
+    <div className={cn('flex items-center gap-1 text-[11px] text-zinc-500', className)}>
+      {icon}
+      <span>{value}</span>
+    </div>
+  )
+}

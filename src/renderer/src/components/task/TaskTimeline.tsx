@@ -1,0 +1,185 @@
+import React, { useEffect, useState } from 'react'
+import {
+  MessageSquare,
+  Bot,
+  FileCode,
+  GitCommit,
+  Zap,
+  AlertCircle,
+  Clock
+} from 'lucide-react'
+import { cn, formatTimestamp } from '../../lib/utils'
+import type { TaskEvent } from '../../types'
+import { MOCK_EVENTS } from '../../lib/mockData'
+
+const isElectron = typeof window !== 'undefined' && !!window.api
+
+interface TaskTimelineProps {
+  taskId: string
+}
+
+export function TaskTimeline({ taskId }: TaskTimelineProps) {
+  const [events, setEvents] = useState<TaskEvent[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!isElectron) {
+      setEvents(MOCK_EVENTS.filter((e) => e.task_id === taskId))
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    window.api.tasks.getEvents(taskId).then((data: TaskEvent[]) => {
+      setEvents(data)
+      setLoading(false)
+    })
+
+    const unsub = window.api.tasks.onEvent(taskId, (event: unknown) => {
+      setEvents((prev) => [...prev, event as TaskEvent])
+    })
+    return unsub
+  }, [taskId])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-24 text-xs text-zinc-600">
+        Loading...
+      </div>
+    )
+  }
+
+  if (events.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-24 text-xs text-zinc-600">
+        No events yet
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1 py-2">
+      {events.map((event, i) => (
+        <TimelineEvent key={event.id} event={event} isLast={i === events.length - 1} />
+      ))}
+    </div>
+  )
+}
+
+function TimelineEvent({ event, isLast }: { event: TaskEvent; isLast: boolean }) {
+  const config = EVENT_CONFIG[event.type]
+
+  return (
+    <div className="flex gap-3 group">
+      {/* Line + icon */}
+      <div className="flex flex-col items-center">
+        <div
+          className={cn(
+            'w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5',
+            config.iconBg
+          )}
+        >
+          {config.icon}
+        </div>
+        {!isLast && <div className="w-px flex-1 bg-white/[0.05] mt-1 mb-1 min-h-[8px]" />}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0 pb-3">
+        <div className="flex items-center gap-2 mb-1">
+          <span className={cn('text-[11px] font-semibold', config.labelColor)}>{config.label}</span>
+          <span className="text-[10px] text-zinc-600 font-mono">{formatTimestamp(event.timestamp)}</span>
+        </div>
+
+        {event.type === 'file_change' && event.content ? (
+          <FileChangeList content={event.content} />
+        ) : event.content ? (
+          <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap">
+            {event.content}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function FileChangeList({ content }: { content: string }) {
+  try {
+    const files = JSON.parse(content) as Array<{
+      path: string
+      type: string
+      additions?: number
+      deletions?: number
+    }>
+    return (
+      <div className="space-y-1 mt-1">
+        {files.map((f) => (
+          <div key={f.path} className="flex items-center gap-2 text-[11px] font-mono">
+            <span
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-bold uppercase',
+                f.type === 'added'
+                  ? 'bg-emerald-400/10 text-emerald-400'
+                  : f.type === 'deleted'
+                    ? 'bg-red-400/10 text-red-400'
+                    : 'bg-blue-400/10 text-blue-400'
+              )}
+            >
+              {f.type === 'added' ? '+' : f.type === 'deleted' ? '−' : '~'}
+            </span>
+            <span className="text-zinc-300 truncate">{f.path}</span>
+            {f.additions !== undefined && (
+              <span className="text-emerald-500 ml-auto shrink-0">+{f.additions}</span>
+            )}
+            {f.deletions !== undefined && f.deletions > 0 && (
+              <span className="text-red-500">-{f.deletions}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  } catch {
+    return <p className="text-xs text-zinc-500">{content}</p>
+  }
+}
+
+const EVENT_CONFIG: Record<
+  TaskEvent['type'],
+  { icon: React.ReactNode; iconBg: string; label: string; labelColor: string }
+> = {
+  user_prompt: {
+    icon: <MessageSquare className="w-3 h-3 text-white" />,
+    iconBg: 'bg-zinc-700',
+    label: 'Prompt',
+    labelColor: 'text-zinc-300'
+  },
+  ai_response: {
+    icon: <Bot className="w-3 h-3 text-orange-400" />,
+    iconBg: 'bg-orange-400/10',
+    label: 'Agent',
+    labelColor: 'text-orange-400'
+  },
+  file_change: {
+    icon: <FileCode className="w-3 h-3 text-blue-400" />,
+    iconBg: 'bg-blue-400/10',
+    label: 'File Changes',
+    labelColor: 'text-blue-400'
+  },
+  git_snapshot: {
+    icon: <GitCommit className="w-3 h-3 text-violet-400" />,
+    iconBg: 'bg-violet-400/10',
+    label: 'Git Snapshot',
+    labelColor: 'text-violet-400'
+  },
+  system: {
+    icon: <Zap className="w-3 h-3 text-zinc-400" />,
+    iconBg: 'bg-zinc-800',
+    label: 'System',
+    labelColor: 'text-zinc-500'
+  },
+  error: {
+    icon: <AlertCircle className="w-3 h-3 text-red-400" />,
+    iconBg: 'bg-red-400/10',
+    label: 'Error',
+    labelColor: 'text-red-400'
+  }
+}

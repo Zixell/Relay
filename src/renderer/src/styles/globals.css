@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 240 5% 96%;
+    --card: 0 0% 7%;
+    --card-foreground: 240 5% 96%;
+    --border: 240 3.7% 15%;
+    --input: 240 3.7% 15%;
+    --ring: 240 5% 65%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 3.7% 15%;
+    --secondary-foreground: 240 5% 90%;
+    --muted: 240 3.7% 12%;
+    --muted-foreground: 240 5% 45%;
+    --accent: 240 3.7% 15%;
+    --accent-foreground: 240 5% 96%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border box-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+  }
+
+  /* Selection */
+  ::selection {
+    background: rgba(59, 130, 246, 0.25);
+    color: inherit;
+  }
+
+  /* Disable default outline — we handle it */
+  *:focus {
+    outline: none;
+  }
+
+  /* Prevent text selection in UI (we enable it where needed) */
+  * {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Allow text selection in content areas */
+  textarea,
+  input,
+  pre,
+  code,
+  .selectable {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+@layer utilities {
+  .app-drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-violet-400;
+  }
+
+  /* Glass card */
+  .glass {
+    @apply bg-white/[0.03] backdrop-blur-sm border border-white/[0.07];
+  }
+
+  /* Animated pulse for running state */
+  @keyframes statusPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .status-pulse {
+    animation: statusPulse 2s ease-in-out infinite;
+  }
+}
