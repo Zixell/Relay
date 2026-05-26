@@ -17,7 +17,8 @@ const api = {
   projects: {
     getAll: () => ipcRenderer.invoke('projects:getAll'),
     create: (data: { name: string; path: string; description?: string }) =>
-      ipcRenderer.invoke('projects:create', data)
+      ipcRenderer.invoke('projects:create', data),
+    delete: (id: string) => ipcRenderer.invoke('projects:delete', id)
   },
 
   // Tasks
@@ -65,7 +66,17 @@ const api = {
     getChanges: (cwd: string, branch?: string, startCommit?: string) =>
       ipcRenderer.invoke('git:getChanges', { cwd, branch, startCommit }),
     getFileDiff: (cwd: string, filePath: string, startCommit?: string) =>
-      ipcRenderer.invoke('git:getFileDiff', { cwd, filePath, startCommit })
+      ipcRenderer.invoke('git:getFileDiff', { cwd, filePath, startCommit }),
+    getBranches: (cwd: string): Promise<string[]> =>
+      ipcRenderer.invoke('git:getBranches', cwd),
+    getWorkingStatus: (cwd: string) =>
+      ipcRenderer.invoke('git:getWorkingStatus', cwd),
+    stage: (cwd: string, files: string[]) =>
+      ipcRenderer.invoke('git:stage', { cwd, files }),
+    commit: (cwd: string, message: string) =>
+      ipcRenderer.invoke('git:commit', { cwd, message }),
+    push: (cwd: string) => ipcRenderer.invoke('git:push', cwd),
+    pull: (cwd: string) => ipcRenderer.invoke('git:pull', cwd)
   },
 
   // PTY

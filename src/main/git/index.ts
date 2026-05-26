@@ -128,6 +128,77 @@ export function getFileDiff(cwd: string, filePath: string, startCommit?: string)
   )
 }
 
+export interface GitWorkingFile {
+  path: string
+  staged: boolean
+  statusCode: string
+}
+
+export interface GitWorkingStatus {
+  isGitRepo: boolean
+  branch: string
+  files: GitWorkingFile[]
+}
+
+export function getLocalBranches(cwd: string): string[] {
+  const isRepo = run('git rev-parse --is-inside-work-tree', cwd)
+  if (isRepo !== 'true') return []
+  const output = run('git branch --format=%(refname:short)', cwd)
+  return output.split('\n').map((b) => b.trim()).filter(Boolean)
+}
+
+export function getWorkingDirStatus(cwd: string): GitWorkingStatus {
+  const isRepo = run('git rev-parse --is-inside-work-tree', cwd)
+  if (isRepo !== 'true') return { isGitRepo: false, branch: '', files: [] }
+
+  const branch = run('git rev-parse --abbrev-ref HEAD', cwd)
+  const statusOut = run('git status --porcelain', cwd)
+
+  const files: GitWorkingFile[] = []
+  for (const line of statusOut.split('\n')) {
+    if (!line.trim()) continue
+    const x = line[0]
+    const y = line[1]
+    const rest = line.slice(3)
+
+    if (x === '?' && y === '?') continue
+
+    const staged = x !== ' '
+    const statusCode = staged ? x : y
+    let path = rest.replace(/^"|"$/g, '')
+
+    if (x === 'R' || y === 'R') {
+      const arrowIdx = rest.indexOf(' -> ')
+      if (arrowIdx !== -1) path = rest.slice(arrowIdx + 4).replace(/^"|"$/g, '')
+    }
+
+    if (path) files.push({ path, staged, statusCode })
+  }
+
+  return { isGitRepo: true, branch, files }
+}
+
+export function stageFiles(cwd: string, files: string[]): { success: boolean; stderr: string } {
+  if (files.length === 0) return { success: true, stderr: '' }
+  const result = git(['add', '--', ...files], cwd)
+  return { success: result.success, stderr: result.stderr }
+}
+
+export function commitStaged(cwd: string, message: string): { success: boolean; stderr: string } {
+  const result = git(['commit', '-m', message], cwd)
+  return { success: result.success, stderr: result.stderr }
+}
+
+export function pushOrigin(cwd: string): { success: boolean; stderr: string; stdout: string } {
+  const result = git(['push', 'origin', 'HEAD'], cwd)
+  return { success: result.success, stderr: result.stderr, stdout: result.stdout }
+}
+
+export function pullOrigin(cwd: string): { success: boolean; stderr: string; stdout: string } {
+  const result = git(['pull'], cwd)
+  return { success: result.success, stderr: result.stderr, stdout: result.stdout }
+}
+
 export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: string): GitChangesResult {
   const empty: GitChangesResult = {
     isGitRepo: false,

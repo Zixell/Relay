@@ -21,19 +21,12 @@ function run(cmd: string, cwd: string): string {
 
 function getModifiedFiles(cwd: string, startCommit?: string): string[] {
   try {
-    const seen = new Set<string>()
-
     if (startCommit) {
-      // Committed changes since session start
-      const committed = run(`git diff --name-only ${startCommit} HEAD`, cwd)
-      if (committed) committed.split('\n').filter(Boolean).forEach((f) => seen.add(f))
+      const out = run(`git diff --name-only ${startCommit} HEAD`, cwd)
+      if (out) return out.split('\n').filter(Boolean)
     }
-
-    // Staged (index) changes — tracked files only
-    const staged = run('git diff --name-only --cached HEAD', cwd)
-    if (staged) staged.split('\n').filter(Boolean).forEach((f) => seen.add(f))
-
-    return [...seen]
+    const out = run('git status --porcelain', cwd)
+    return out.split('\n').filter(Boolean).map((l) => l.slice(3).trim()).filter(Boolean)
   } catch {
     return []
   }
@@ -217,17 +210,21 @@ export async function generateSessionSummary(
   return { session_id: sessionId, timestamp, text, modified_files: modifiedFiles, commits, status }
 }
 
-/** Format the last session summary as plain-text context injected when a session restarts. */
+/** Format all session summaries as plain-text context injected when a session restarts. */
 export function formatSummaryAsContext(summaries: SessionSummary[]): string {
   if (!summaries.length) return ''
 
-  // Only inject the most recent summary
-  const s = summaries[summaries.length - 1]
-  const date = (() => { try { return new Date(s.timestamp).toLocaleString() } catch { return s.timestamp } })()
-
-  const lines = [`Context from previous session (${date}):`]
-  if (s.text) lines.push(`  ${s.text}`)
-  if (s.modified_files?.length > 0) lines.push(`  Files: ${s.modified_files.join(', ')}`)
-  if (s.commits?.length > 0) lines.push(`  Commits: ${s.commits.join(', ')}`)
+  const lines = ['Context from previous sessions:']
+  for (let i = 0; i < summaries.length; i++) {
+    const s = summaries[i]
+    const date = (() => { try { return new Date(s.timestamp).toLocaleString() } catch { return s.timestamp } })()
+    lines.push(`\nSession ${i + 1} (${date}):`)
+    if (s.text) {
+      lines.push(`  ${s.text}`)
+    }
+    if (s.modified_files?.length > 0) lines.push(`  Files: ${s.modified_files.join(', ')}`)
+    if (s.commits?.length > 0) lines.push(`  Commits: ${s.commits.join(', ')}`)
+  }
+  lines.push('\nPlease keep in mind for future prompts. No work needed right now.')
   return lines.join('\n')
 }

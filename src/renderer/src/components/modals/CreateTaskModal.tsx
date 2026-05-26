@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { FolderOpen, GitBranch, Play, Zap } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { FolderOpen, GitBranch, Play, Zap, ChevronDown } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -69,8 +69,16 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
   const [isCreating, setIsCreating] = useState(false)
   const [newProjectPath, setNewProjectPath] = useState('')
   const [error, setError] = useState('')
+  const [localBranches, setLocalBranches] = useState<string[]>([])
 
   const isElectron = typeof window !== 'undefined' && !!window.api
+
+  // Fetch branches whenever a project path is selected
+  useEffect(() => {
+    const path = newProjectPath || (projectId ? projects.find((p) => p.id === projectId)?.path : '')
+    if (!path || !isElectron) { setLocalBranches([]); return }
+    window.api.git.getBranches(path).then(setLocalBranches).catch(() => setLocalBranches([]))
+  }, [newProjectPath, projectId, projects, isElectron])
 
   const handleFolderPick = async () => {
     if (!isElectron) return
@@ -171,6 +179,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
     setProcessType('claude-code')
     setBranch('')
     setNewProjectPath('')
+    setLocalBranches([])
     setError('')
   }
 
@@ -299,15 +308,11 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
 
           {/* Branch (optional) */}
           <Field label="Git Branch" optional>
-            <div className="relative">
-              <GitBranch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
-              <Input
-                placeholder="feat/new-feature (leave blank for current branch)"
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                className="pl-8"
-              />
-            </div>
+            <BranchCombobox
+              branches={localBranches}
+              value={branch}
+              onChange={setBranch}
+            />
           </Field>
         </div>
 
@@ -345,6 +350,87 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function BranchCombobox({
+  branches,
+  value,
+  onChange
+}: {
+  branches: string[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const filtered = branches
+    .filter((b) => !query || b.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 5)
+
+  const displayValue = query || value
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handler, true)
+    return () => document.removeEventListener('mousedown', handler, true)
+  }, [open])
+
+  return (
+    <div ref={containerRef} className="relative">
+      <GitBranch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none z-10" />
+      <Input
+        placeholder="feat/new-feature (leave blank for current branch)"
+        value={displayValue}
+        onChange={(e) => {
+          const v = e.target.value
+          setQuery(v)
+          onChange(v)
+          if (branches.length > 0) setOpen(true)
+        }}
+        onFocus={() => { if (branches.length > 0) setOpen(true) }}
+        className={branches.length > 0 ? 'pl-8 pr-8' : 'pl-8'}
+      />
+      {branches.length > 0 && (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {open && filtered.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-white/[0.08] bg-[#1a1a1a] shadow-xl py-1 z-50 max-h-[180px] overflow-y-auto">
+          {filtered.map((b) => (
+            <button
+              key={b}
+              type="button"
+              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors text-left"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                onChange(b)
+                setQuery('')
+                setOpen(false)
+              }}
+            >
+              <GitBranch className="w-3 h-3 text-zinc-500 shrink-0" />
+              <span className="font-mono truncate">{b}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

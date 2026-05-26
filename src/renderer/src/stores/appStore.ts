@@ -29,6 +29,7 @@ interface AppState {
   updateTask: (id: string, updates: Partial<Task>) => void
   deleteTask: (id: string) => void
   addProject: (project: Project) => void
+  deleteProject: (id: string) => void
   loadData: () => Promise<void>
   refreshTasks: () => Promise<void>
 }
@@ -36,8 +37,8 @@ interface AppState {
 const isElectron = typeof window !== 'undefined' && !!window.api
 
 export const useAppStore = create<AppState>((set, get) => ({
-  tasks: MOCK_TASKS,
-  projects: MOCK_PROJECTS,
+  tasks: isElectron ? [] : MOCK_TASKS,
+  projects: isElectron ? [] : MOCK_PROJECTS,
   selectedTaskId: null,
   selectedProjectId: null,
   searchQuery: '',
@@ -78,6 +79,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addProject: (project) => set((s) => ({ projects: [project, ...s.projects] })),
 
+  deleteProject: (id) =>
+    set((s) => ({
+      projects: s.projects.filter((p) => p.id !== id),
+      tasks: s.tasks.filter((t) => t.project_id !== id),
+      selectedProjectId: s.selectedProjectId === id ? null : s.selectedProjectId,
+      selectedTaskId: s.tasks.find((t) => t.project_id === id && t.id === s.selectedTaskId)
+        ? null
+        : s.selectedTaskId
+    })),
+
   loadData: async () => {
     if (!isElectron) return
     set({ isLoading: true })
@@ -86,10 +97,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.api.tasks.getAll(),
         window.api.projects.getAll()
       ])
-      set({
-        tasks: tasks.length ? tasks : MOCK_TASKS,
-        projects: projects.length ? projects : MOCK_PROJECTS
-      })
+      set({ tasks, projects })
     } catch {
       // Keep mock data on error
     } finally {

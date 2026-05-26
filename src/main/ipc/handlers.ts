@@ -8,6 +8,7 @@ import {
   getTerminalLogs,
   getTaskSummaries,
   upsertProject,
+  deleteProject,
   insertTask,
   insertTaskEvent,
   updateTaskStatus,
@@ -23,7 +24,18 @@ import {
   getActiveSessions,
   unlockTaskStatus
 } from '../pty/manager'
-import { getGitChanges, getFileDiff, ensureBranch, getCurrentCommit } from '../git'
+import {
+  getGitChanges,
+  getFileDiff,
+  ensureBranch,
+  getCurrentCommit,
+  getLocalBranches,
+  getWorkingDirStatus,
+  stageFiles,
+  commitStaged,
+  pushOrigin,
+  pullOrigin
+} from '../git'
 import { formatSummaryAsContext, isClaudeCliAvailable } from '../summary/generator'
 import { getSetting, setSetting, getSettingForClient } from '../settings'
 
@@ -44,6 +56,10 @@ export function registerIpcHandlers(): void {
     const id = randomUUID()
     const project = upsertProject({ id, name, path, description })
     return project
+  })
+  ipcMain.handle('projects:delete', (_, id: string) => {
+    deleteProject(id)
+    return { success: true }
   })
 
   // --- Tasks ---
@@ -258,6 +274,17 @@ export function registerIpcHandlers(): void {
   })
 
   // --- Git ---
+  ipcMain.handle('git:getBranches', (_, cwd: string) => getLocalBranches(cwd))
+  ipcMain.handle('git:getWorkingStatus', (_, cwd: string) => getWorkingDirStatus(cwd))
+  ipcMain.handle('git:stage', (_, { cwd, files }: { cwd: string; files: string[] }) =>
+    stageFiles(cwd, files)
+  )
+  ipcMain.handle('git:commit', (_, { cwd, message }: { cwd: string; message: string }) =>
+    commitStaged(cwd, message)
+  )
+  ipcMain.handle('git:push', (_, cwd: string) => pushOrigin(cwd))
+  ipcMain.handle('git:pull', (_, cwd: string) => pullOrigin(cwd))
+
   ipcMain.handle(
     'git:getChanges',
     (_, { cwd, branch, startCommit }: { cwd: string; branch?: string; startCommit?: string }) =>
