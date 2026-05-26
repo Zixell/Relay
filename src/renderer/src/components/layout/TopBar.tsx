@@ -1,9 +1,10 @@
-import React from 'react'
-import { Plus, Search, SlidersHorizontal, Minus, Square, X } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Plus, Search, GitBranch, ArrowUp, ArrowDown, Check, CheckCircle, XCircle } from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
 import type { TaskStatus } from '../../types'
+import { GitCommitModal } from '../modals/GitCommitModal'
 
 const STATUS_FILTERS: { label: string; value: TaskStatus | null }[] = [
   { label: 'All', value: null },
@@ -15,8 +16,167 @@ const STATUS_FILTERS: { label: string; value: TaskStatus | null }[] = [
 
 const isElectron = typeof window !== 'undefined' && !!window.api
 
+// ── Git Branch Widget ────────────────────────────────────────────────────────
+
+function GitBranchWidget({ cwd }: { cwd: string | null }) {
+  const [branch, setBranch] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [commitOpen, setCommitOpen] = useState(false)
+  const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!cwd || !isElectron) { setBranch(null); return }
+    window.api.git.getWorkingStatus(cwd)
+      .then((s: { isGitRepo: boolean; branch: string }) => setBranch(s.isGitRepo ? s.branch : null))
+      .catch(() => setBranch(null))
+  }, [cwd])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler, true)
+    return () => document.removeEventListener('mousedown', handler, true)
+  }, [menuOpen])
+
+  const showToast = (message: string, ok: boolean) => {
+    setToast({ message, ok })
+    setTimeout(() => setToast(null), 6000)
+  }
+
+  const handlePush = async () => {
+    if (!cwd || !isElectron || busy) return
+    setMenuOpen(false)
+    setBusy(true)
+    try {
+      const result = await window.api.git.push(cwd)
+      const reason = [result.stderr, result.stdout].filter(Boolean).join('\n').trim()
+      showToast(result.success ? 'Pushed to origin' : (reason || 'Push failed'), result.success)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Push failed', false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handlePull = async () => {
+    if (!cwd || !isElectron || busy) return
+    setMenuOpen(false)
+    setBusy(true)
+    try {
+      const result = await window.api.git.pull(cwd)
+      const reason = [result.stderr, result.stdout].filter(Boolean).join('\n').trim()
+      showToast(result.success ? 'Pulled from origin' : (reason || 'Pull failed'), result.success)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Pull failed', false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCommitted = () => {
+    setCommitOpen(false)
+    showToast('Committed successfully', true)
+    if (cwd && isElectron) {
+      window.api.git.getWorkingStatus(cwd)
+        .then((s: { isGitRepo: boolean; branch: string }) => setBranch(s.isGitRepo ? s.branch : null))
+        .catch(() => {})
+    }
+  }
+
+  if (!branch) return null
+
+  return (
+    <>
+      {/* Toast — fixed bottom-right */}
+      {toast && (
+        <div
+          className={cn(
+            'fixed bottom-5 right-5 z-[100] max-w-sm flex items-start gap-2 px-3 py-2.5 rounded-lg border shadow-xl text-xs leading-snug',
+            toast.ok
+              ? 'bg-[#111] border-emerald-500/30 text-emerald-300'
+              : 'bg-[#111] border-red-500/30 text-red-300'
+          )}
+        >
+          {toast.ok
+            ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
+            : <XCircle className="w-3.5 h-3.5 shrink-0 mt-px" />}
+          <span className="whitespace-pre-wrap break-words">{toast.message}</span>
+        </div>
+      )}
+
+      <div className="relative">
+        <button
+          ref={btnRef}
+          onClick={() => setMenuOpen((o) => !o)}
+          disabled={busy}
+          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05] hover:border-white/10 text-xs transition-all duration-100 disabled:opacity-50 font-mono"
+        >
+          <GitBranch className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
+          <span>{branch}</span>
+          {busy && <span className="w-2.5 h-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin shrink-0" />}
+        </button>
+
+        {menuOpen && (
+          <div
+            ref={menuRef}
+            className="absolute top-full right-0 mt-1.5 min-w-[140px] rounded-lg border border-white/[0.08] bg-[#1a1a1a] shadow-xl py-1 z-50"
+          >
+            <button
+              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
+              onClick={() => { setMenuOpen(false); setCommitOpen(true) }}
+            >
+              <Check className="w-3.5 h-3.5 text-zinc-400" />
+              Commit
+            </button>
+            <button
+              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
+              onClick={handlePush}
+            >
+              <ArrowUp className="w-3.5 h-3.5 text-zinc-400" />
+              Push
+            </button>
+            <button
+              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
+              onClick={handlePull}
+            >
+              <ArrowDown className="w-3.5 h-3.5 text-zinc-400" />
+              Pull
+            </button>
+          </div>
+        )}
+
+        {commitOpen && cwd && (
+          <GitCommitModal
+            open={commitOpen}
+            cwd={cwd}
+            onClose={() => setCommitOpen(false)}
+            onCommitted={handleCommitted}
+          />
+        )}
+      </div>
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function TopBar() {
   const { statusFilter, setStatusFilter, openCreateModal, selectedTaskId, selectTask } = useAppStore()
+
+  const activePath = useAppStore((s) => {
+    const task = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : null
+    if (task) return task.project_path
+    if (s.selectedProjectId) return s.projects.find((p) => p.id === s.selectedProjectId)?.path ?? null
+    return null
+  })
 
   return (
     <header className="flex items-center h-12 px-4 border-b border-white/[0.06] bg-[#0d0d0d] shrink-0 gap-3">
@@ -75,6 +235,8 @@ export function TopBar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <GitBranchWidget cwd={activePath} />
+
         <button className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-white/[0.06] bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] hover:border-white/10 text-xs transition-all duration-100">
           <Search className="w-3.5 h-3.5" />
           <span>Search</span>

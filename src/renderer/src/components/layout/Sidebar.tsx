@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   LayoutDashboard,
   Search,
@@ -6,14 +6,8 @@ import {
   Settings,
   ChevronRight,
   Terminal,
-  GitBranch,
   Zap,
-  Trash2,
-  ArrowUp,
-  ArrowDown,
-  Check,
-  CheckCircle,
-  XCircle
+  Trash2
 } from 'lucide-react'
 import { cn, getProjectInitials } from '../../lib/utils'
 import { useAppStore, selectFilteredTasks } from '../../stores/appStore'
@@ -21,166 +15,8 @@ import { STATUS_CONFIG } from '../../types'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { ContextMenu, type ContextMenuState } from '../ui/context-menu'
-import { GitCommitModal } from '../modals/GitCommitModal'
 
 const isElectron = typeof window !== 'undefined' && !!window.api
-
-// ── Git Branch Widget ────────────────────────────────────────────────────────
-
-interface GitToast {
-  message: string
-  ok: boolean
-}
-
-function GitBranchWidget({ cwd }: { cwd: string | null }) {
-  const [branch, setBranch] = useState<string | null>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [commitOpen, setCommitOpen] = useState(false)
-  const [toast, setToast] = useState<GitToast | null>(null)
-  const [busy, setBusy] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!cwd || !isElectron) { setBranch(null); return }
-    window.api.git.getWorkingStatus(cwd).then((s: { isGitRepo: boolean; branch: string }) => {
-      setBranch(s.isGitRepo ? s.branch : null)
-    }).catch(() => setBranch(null))
-  }, [cwd])
-
-  // Close menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
-          btnRef.current && !btnRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler, true)
-    return () => document.removeEventListener('mousedown', handler, true)
-  }, [menuOpen])
-
-  const showToast = (message: string, ok: boolean) => {
-    setToast({ message, ok })
-    setTimeout(() => setToast(null), 5000)
-  }
-
-  const handlePush = async () => {
-    if (!cwd || !isElectron || busy) return
-    setMenuOpen(false)
-    setBusy(true)
-    try {
-      const result = await window.api.git.push(cwd)
-      showToast(result.success ? 'Pushed to origin' : (result.stderr || 'Push failed'), result.success)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Push failed', false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handlePull = async () => {
-    if (!cwd || !isElectron || busy) return
-    setMenuOpen(false)
-    setBusy(true)
-    try {
-      const result = await window.api.git.pull(cwd)
-      showToast(result.success ? 'Pulled from origin' : (result.stderr || 'Pull failed'), result.success)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Pull failed', false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleCommitted = () => {
-    setCommitOpen(false)
-    showToast('Committed successfully', true)
-    // Refresh branch name
-    if (cwd && isElectron) {
-      window.api.git.getWorkingStatus(cwd).then((s: { isGitRepo: boolean; branch: string }) => {
-        setBranch(s.isGitRepo ? s.branch : null)
-      }).catch(() => {})
-    }
-  }
-
-  if (!branch) return null
-
-  return (
-    <div className="px-3 pb-2">
-      {/* Toast */}
-      {toast && (
-        <div className={cn(
-          'flex items-start gap-2 mb-2 px-2.5 py-2 rounded-lg border text-[10px] leading-snug',
-          toast.ok
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-            : 'bg-red-500/10 border-red-500/20 text-red-300'
-        )}>
-          {toast.ok
-            ? <CheckCircle className="w-3 h-3 shrink-0 mt-px" />
-            : <XCircle className="w-3 h-3 shrink-0 mt-px" />}
-          <span className="break-all">{toast.message}</span>
-        </div>
-      )}
-
-      {/* Branch button */}
-      <div className="relative">
-        <button
-          ref={btnRef}
-          onClick={() => setMenuOpen((o) => !o)}
-          disabled={busy}
-          className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04] transition-all duration-100 disabled:opacity-50"
-        >
-          <GitBranch className="w-3.5 h-3.5 shrink-0" />
-          <span className="text-xs font-mono truncate flex-1 text-left">{branch}</span>
-          {busy && <span className="w-2.5 h-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin shrink-0" />}
-        </button>
-
-        {/* Dropdown menu */}
-        {menuOpen && (
-          <div
-            ref={menuRef}
-            className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-white/[0.08] bg-[#1a1a1a] shadow-xl py-1 z-50"
-          >
-            <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
-              onClick={() => { setMenuOpen(false); setCommitOpen(true) }}
-            >
-              <Check className="w-3.5 h-3.5 text-zinc-400" />
-              Commit
-            </button>
-            <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
-              onClick={handlePush}
-            >
-              <ArrowUp className="w-3.5 h-3.5 text-zinc-400" />
-              Push
-            </button>
-            <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
-              onClick={handlePull}
-            >
-              <ArrowDown className="w-3.5 h-3.5 text-zinc-400" />
-              Pull
-            </button>
-          </div>
-        )}
-      </div>
-
-      {commitOpen && cwd && (
-        <GitCommitModal
-          open={commitOpen}
-          cwd={cwd}
-          onClose={() => setCommitOpen(false)}
-          onCommitted={handleCommitted}
-        />
-      )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
   className?: string
@@ -206,13 +42,6 @@ export function Sidebar({ className }: SidebarProps) {
   const recentTasks = tasks.slice(0, 5)
   const runningCount = allTasks.filter((t) => t.status === 'running').length
   const waitingCount = allTasks.filter((t) => t.status === 'waiting').length
-
-  const activePath = useAppStore((s) => {
-    const task = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : null
-    if (task) return task.project_path
-    if (s.selectedProjectId) return s.projects.find((p) => p.id === s.selectedProjectId)?.path ?? null
-    return null
-  })
 
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [ctxMenu, setCtxMenu] = useState<(ContextMenuState & { taskId: string }) | null>(null)
@@ -447,18 +276,15 @@ export function Sidebar({ className }: SidebarProps) {
         />
       )}
 
-      {/* Bottom: git widget + settings */}
-      <div className="mt-auto border-t border-white/[0.05] pt-3">
-        <GitBranchWidget cwd={activePath} />
-        <div className="px-3 pb-4">
-          <button
-            onClick={openSettings}
-            className="flex items-center gap-2.5 w-full px-2 py-2 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04] transition-all duration-100"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="text-xs">Settings</span>
-          </button>
-        </div>
+      {/* Bottom settings */}
+      <div className="mt-auto px-3 pb-4 pt-3 border-t border-white/[0.05]">
+        <button
+          onClick={openSettings}
+          className="flex items-center gap-2.5 w-full px-2 py-2 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04] transition-all duration-100"
+        >
+          <Settings className="w-4 h-4" />
+          <span className="text-xs">Settings</span>
+        </button>
       </div>
     </aside>
   )

@@ -234,6 +234,12 @@ export function deleteTask(id: string) {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
 }
 
+export function deleteProject(id: string) {
+  if (!db) return
+  // CASCADE in schema handles tasks + their related rows
+  db.prepare('DELETE FROM projects WHERE id = ?').run(id)
+}
+
 /** On app start: move any tasks left in 'running' state to 'paused' (they can't be running if the app just started). */
 export function resetRunningTasks(): void {
   if (!db) return
