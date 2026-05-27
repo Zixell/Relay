@@ -286,3 +286,4 @@ export function insertTerminalLog(taskId: string, data: string) {
   if (!db) return
   db.prepare('INSERT INTO terminal_logs (task_id, data) VALUES (?, ?)').run(taskId, data)
 }
+
