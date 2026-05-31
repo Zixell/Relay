@@ -250,7 +250,7 @@ export function commitAllAndMerge(
   projectCwd: string,
   targetBranch: string,
   commitMessage: string
-): { success: boolean; stderr: string; committed: boolean } {
+): { success: boolean; stderr: string; committed: boolean; commitHash?: string } {
   // Stage everything in worktree
   const stageResult = git(['add', '-A'], worktreeCwd)
   if (!stageResult.success) {
@@ -295,7 +295,8 @@ export function commitAllAndMerge(
   if (!squashCommit.success) {
     return { success: false, stderr: squashCommit.stderr, committed }
   }
-  return { success: true, stderr: '', committed }
+  const commitHash = run('git rev-parse HEAD', projectCwd)
+  return { success: true, stderr: '', committed, commitHash }
 }
 
 export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: string): GitChangesResult {

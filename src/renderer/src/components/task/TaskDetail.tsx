@@ -91,7 +91,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
     try {
       const stripped = task.branch.replace(/^(feature|feat|fix|bugfix|hotfix|chore|refactor|docs|test|style|perf)\//, '')
       const commitMessage = `${stripped}: ${task.title}`
-      const res = await window.api.git.commitAndMerge(task.worktree_path, task.project_path, task.branch, commitMessage)
+      const res = await window.api.git.commitAndMerge(task.id, task.worktree_path, task.project_path, task.branch, commitMessage)
       if (res.success) {
         setMergeState('success')
         setTimeout(() => setMergeState('idle'), 3000)

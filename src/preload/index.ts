@@ -83,8 +83,8 @@ const api = {
       ipcRenderer.invoke('git:commit', { cwd, message }),
     push: (cwd: string, branch?: string) => ipcRenderer.invoke('git:push', { cwd, branch }),
     merge: (cwd: string, branch: string, targetBranch?: string) => ipcRenderer.invoke('git:merge', { cwd, branch, targetBranch }),
-    commitAndMerge: (worktreeCwd: string, projectCwd: string, targetBranch: string, commitMessage: string) =>
-      ipcRenderer.invoke('git:commitAndMerge', { worktreeCwd, projectCwd, targetBranch, commitMessage })
+    commitAndMerge: (taskId: string, worktreeCwd: string, projectCwd: string, targetBranch: string, commitMessage: string) =>
+      ipcRenderer.invoke('git:commitAndMerge', { taskId, worktreeCwd, projectCwd, targetBranch, commitMessage })
   },
 
   // PTY

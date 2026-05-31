@@ -354,12 +354,23 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'git:commitAndMerge',
-    (_, { worktreeCwd, projectCwd, targetBranch, commitMessage }: {
+    (_, { taskId, worktreeCwd, projectCwd, targetBranch, commitMessage }: {
+      taskId: string
       worktreeCwd: string
       projectCwd: string
       targetBranch: string
       commitMessage: string
-    }) => commitAllAndMerge(worktreeCwd, projectCwd, targetBranch, commitMessage)
+    }) => {
+      const result = commitAllAndMerge(worktreeCwd, projectCwd, targetBranch, commitMessage)
+      if (result.success && result.commitHash) {
+        const eventId = randomUUID()
+        const content = JSON.stringify({ targetBranch, commit: result.commitHash })
+        const now = Math.floor(Date.now() / 1000)
+        insertTaskEvent({ id: eventId, task_id: taskId, type: 'git_merge', content, metadata: null })
+        emitTaskEvent({ id: eventId, task_id: taskId, type: 'git_merge', content, metadata: null, timestamp: now })
+      }
+      return result
+    }
   )
 
   ipcMain.handle(

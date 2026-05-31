@@ -4,6 +4,7 @@ import {
   Bot,
   FileCode,
   GitCommit,
+  GitMerge,
   Zap,
   AlertCircle,
   Clock
@@ -92,6 +93,8 @@ function TimelineEvent({ event, isLast }: { event: TaskEvent; isLast: boolean })
 
         {event.type === 'file_change' && event.content ? (
           <FileChangeList content={event.content} />
+        ) : event.type === 'git_merge' && event.content ? (
+          <MergeEventContent content={event.content} />
         ) : event.content ? (
           <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap">
             {event.content}
@@ -100,6 +103,23 @@ function TimelineEvent({ event, isLast }: { event: TaskEvent; isLast: boolean })
       </div>
     </div>
   )
+}
+
+function MergeEventContent({ content }: { content: string }) {
+  try {
+    const { targetBranch, commit } = JSON.parse(content) as { targetBranch: string; commit: string }
+    return (
+      <div className="flex items-center gap-2 mt-0.5">
+        <span className="text-xs text-zinc-400">into</span>
+        <span className="text-xs font-mono text-emerald-400">{targetBranch}</span>
+        <span className="text-[10px] font-mono text-zinc-600 bg-white/[0.04] px-1.5 py-0.5 rounded">
+          {commit.slice(0, 7)}
+        </span>
+      </div>
+    )
+  } catch {
+    return <p className="text-xs text-zinc-500">{content}</p>
+  }
 }
 
 function FileChangeList({ content }: { content: string }) {
@@ -181,5 +201,11 @@ const EVENT_CONFIG: Record<
     iconBg: 'bg-red-400/10',
     label: 'Error',
     labelColor: 'text-red-400'
+  },
+  git_merge: {
+    icon: <GitMerge className="w-3 h-3 text-emerald-400" />,
+    iconBg: 'bg-emerald-400/10',
+    label: 'Merged',
+    labelColor: 'text-emerald-400'
   }
 }
