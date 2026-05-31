@@ -41,21 +41,8 @@ function buildGitEnv(): NodeJS.ProcessEnv {
     // In a terminal session it may be inherited; in Electron it never is.
     env.SSH_AUTH_SOCK = '//./pipe/openssh-ssh-agent'
   }
-  // Use a custom SSH identity file if configured in settings
-  const sshKeyPath = getSetting('GIT_SSH_KEY_PATH')
-  if (sshKeyPath) {
-    // Expand ~ and normalise to forward slashes — Git's ssh on Windows
-    // does not expand ~ and chokes on backslashes inside -i.
-    const expandedPath = sshKeyPath
-      .replace(/^~/, os.homedir())
-      .replace(/\\/g, '/')
-    // Only activate IdentitiesOnly if the file actually exists.
-    // A missing/stale path with IdentitiesOnly=yes would block all SSH auth
-    // (including the SSH agent) and produce "Permission denied (publickey)".
-    if (fs.existsSync(expandedPath)) {
-      env.GIT_SSH_COMMAND = `ssh -i "${expandedPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
-    }
-  }
+  // SSH key injection is handled per-operation via git -c core.sshCommand in pushOrigin.
+  // buildGitEnv is used for local operations (commit, status, merge) that don't need SSH.
   return env
 }
 
@@ -233,13 +220,35 @@ export function commitStaged(cwd: string, message: string): { success: boolean; 
   return { success: result.success, stderr: result.stderr }
 }
 
-export function pushOrigin(cwd: string, targetBranch?: string): Promise<{ success: boolean; stderr: string; stdout: string }> {
-  // If a target branch is specified, push local HEAD to that remote branch name.
-  // This lets the worktree branch (relay/task-XXXXXXXX) be published under the
-  // target branch name on origin without having to rename the local branch.
-  // Uses gitAsync to avoid blocking the Electron main process during network I/O.
+export async function pushOrigin(cwd: string, targetBranch?: string): Promise<{ success: boolean; stderr: string; stdout: string }> {
   const refspec = targetBranch ? `HEAD:refs/heads/${targetBranch}` : 'HEAD'
-  return gitAsync(['push', 'origin', refspec], cwd)
+  const args: string[] = ['push', 'origin', refspec]
+
+  // Inject SSH key via git -c core.sshCommand — more reliable than GIT_SSH_COMMAND
+  // env var on Windows (where git runs SSH through its own MSYS2 shell).
+  const rawKeyPath = getSetting('GIT_SSH_KEY_PATH')
+  let keyNote = ''
+  if (rawKeyPath) {
+    const expandedPath = rawKeyPath.replace(/^~/, os.homedir()).replace(/\\/g, '/')
+    if (fs.existsSync(expandedPath)) {
+      // Git for Windows runs core.sshCommand through its MSYS2/POSIX shell, so the
+      // key path must be in POSIX format: C:/Users/... → /c/Users/...
+      const posixPath = process.platform === 'win32'
+        ? expandedPath.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
+        : expandedPath
+      // Prepend -c so git uses this command for the push: git -c core.sshCommand=... push
+      args.unshift('-c', `core.sshCommand=ssh -i "${posixPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`)
+      keyNote = `[key: ${expandedPath}]`
+    } else {
+      keyNote = `[key not found: ${expandedPath}]`
+    }
+  }
+
+  const result = await gitAsync(args, cwd)
+  if (!result.success && keyNote) {
+    result.stderr = `${result.stderr}\n${keyNote}`.trim()
+  }
+  return result
 }
 
 export function mergeBranch(cwd: string, branch: string, targetBranch?: string): { success: boolean; stderr: string; stdout: string } {
