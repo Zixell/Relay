@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   GitBranch,
   Clock,
@@ -10,7 +10,8 @@ import {
   CheckCircle2,
   PauseCircle,
   MessageSquare,
-  Folder
+  Folder,
+  Trash2
 } from 'lucide-react'
 import { cn, formatDuration, formatRelativeTime, truncatePath } from '../../lib/utils'
 import { STATUS_CONFIG, PROCESS_LABELS, PROCESS_COLORS, type Task } from '../../types'
@@ -18,6 +19,9 @@ import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { MOCK_TERMINAL_LOGS } from '../../lib/mockData'
 import { useAppStore } from '../../stores/appStore'
+import { ContextMenu, type ContextMenuState } from '../ui/context-menu'
+
+const isElectron = typeof window !== 'undefined' && !!window.api
 
 interface TaskCardProps {
   task: Task
@@ -25,8 +29,20 @@ interface TaskCardProps {
 
 export function TaskCard({ task }: TaskCardProps) {
   const selectTask = useAppStore((s) => s.selectTask)
+  const deleteTask = useAppStore((s) => s.deleteTask)
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
   const statusCfg = STATUS_CONFIG[task.status]
   const processColor = PROCESS_COLORS[task.process_type]
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setCtxMenu({ x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handleDeleteTask = useCallback(async () => {
+    if (isElectron) await window.api.tasks.delete(task.id)
+    deleteTask(task.id)
+  }, [task.id, deleteTask])
 
   const logPreview = MOCK_TERMINAL_LOGS[task.id]?.slice(-300) ?? ''
   const logLines = logPreview
@@ -37,6 +53,7 @@ export function TaskCard({ task }: TaskCardProps) {
     .join('\n')
 
   return (
+    <>
     <div
       className={cn(
         'group relative rounded-xl border bg-[#111] transition-all duration-200 cursor-pointer overflow-hidden',
@@ -50,6 +67,7 @@ export function TaskCard({ task }: TaskCardProps) {
               : 'border-white/[0.06]'
       )}
       onClick={() => selectTask(task.id)}
+      onContextMenu={handleContextMenu}
     >
       {/* Running accent bar */}
       {task.status === 'running' && (
@@ -189,6 +207,22 @@ export function TaskCard({ task }: TaskCardProps) {
         </div>
       </div>
     </div>
+    {ctxMenu && (
+      <ContextMenu
+        x={ctxMenu.x}
+        y={ctxMenu.y}
+        onClose={() => setCtxMenu(null)}
+        items={[
+          {
+            label: 'Delete Task',
+            icon: <Trash2 className="w-3.5 h-3.5" />,
+            variant: 'danger',
+            onClick: handleDeleteTask
+          }
+        ]}
+      />
+    )}
+    </>
   )
 }
 

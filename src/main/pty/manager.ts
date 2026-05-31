@@ -398,8 +398,16 @@ export function killPtySession(taskId: string): void {
 export function killAllSessions(): void {
   for (const interval of completionWatchers.values()) clearInterval(interval)
   completionWatchers.clear()
+
+  // Tasks with a pending inactivity timer were idle (agent stopped outputting) but
+  // the 15-second window hadn't elapsed yet. Mark them completed now so that after
+  // an app restart they don't revert to 'paused' via resetRunningTasks().
+  for (const taskId of inactivityTimers.keys()) {
+    updateTaskStatus(taskId, 'completed')
+  }
   for (const timer of inactivityTimers.values()) clearTimeout(timer)
   inactivityTimers.clear()
+
   sessionStatuses.clear()
   lockedStatuses.clear()
   for (const [sessionId, session] of sessions) {

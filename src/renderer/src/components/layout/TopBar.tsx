@@ -18,8 +18,8 @@ const isElectron = typeof window !== 'undefined' && !!window.api
 
 // ── Git Branch Widget ────────────────────────────────────────────────────────
 
-function GitBranchWidget({ cwd }: { cwd: string | null }) {
-  const [branch, setBranch] = useState<string | null>(null)
+function GitBranchWidget({ cwd, targetBranch }: { cwd: string | null; targetBranch?: string | null }) {
+  const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [commitOpen, setCommitOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
@@ -27,12 +27,16 @@ function GitBranchWidget({ cwd }: { cwd: string | null }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
+  // Fetch git status to know if it's a valid repo (needed for operations)
   useEffect(() => {
-    if (!cwd || !isElectron) { setBranch(null); return }
+    if (!cwd || !isElectron) { setGitBranch(null); return }
     window.api.git.getWorkingStatus(cwd)
-      .then((s: { isGitRepo: boolean; branch: string }) => setBranch(s.isGitRepo ? s.branch : null))
-      .catch(() => setBranch(null))
+      .then((s: { isGitRepo: boolean; branch: string }) => setGitBranch(s.isGitRepo ? s.branch : null))
+      .catch(() => setGitBranch(null))
   }, [cwd])
+
+  // Display targetBranch (set at task creation) if available, else fall back to git branch
+  const branch = targetBranch || gitBranch
 
   useEffect(() => {
     if (!menuOpen) return
@@ -86,7 +90,7 @@ function GitBranchWidget({ cwd }: { cwd: string | null }) {
     showToast('Committed successfully', true)
     if (cwd && isElectron) {
       window.api.git.getWorkingStatus(cwd)
-        .then((s: { isGitRepo: boolean; branch: string }) => setBranch(s.isGitRepo ? s.branch : null))
+        .then((s: { isGitRepo: boolean; branch: string }) => setGitBranch(s.isGitRepo ? s.branch : null))
         .catch(() => {})
     }
   }
@@ -178,6 +182,11 @@ export function TopBar() {
     return null
   })
 
+  const selectedTaskBranch = useAppStore((s) => {
+    const task = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : null
+    return task?.branch ?? null
+  })
+
   return (
     <header className="flex items-center h-12 px-4 border-b border-white/[0.06] bg-[#0d0d0d] shrink-0 gap-3">
       {/* Window traffic lights placeholder on non-mac or custom frame */}
@@ -235,7 +244,7 @@ export function TopBar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        <GitBranchWidget cwd={activePath} />
+        <GitBranchWidget cwd={activePath} targetBranch={selectedTaskBranch} />
 
         <button className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-white/[0.06] bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] hover:border-white/10 text-xs transition-all duration-100">
           <Search className="w-3.5 h-3.5" />

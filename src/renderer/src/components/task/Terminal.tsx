@@ -188,14 +188,26 @@ export function Terminal({ task, className }: TerminalProps) {
         const hasSession = sessions.includes(`pty-${task.id}`)
 
         if (!hasSession && task.status === 'running') {
-          try {
-            await window.api.pty.restart(task.id, xterm.cols, xterm.rows)
-            updateTask(task.id, { status: 'running', updated_at: Math.floor(Date.now() / 1000) })
-            if (logs.length > 0) {
-              xterm.write('\r\n\x1b[90m─── Session resumed ───\x1b[0m\r\n')
+          // Verify DB status before auto-restarting — the React store may be stale
+          // if the session completed naturally while this component wasn't mounted.
+          const freshTask = await (window.api.tasks.getById(task.id) as Promise<{ status: string } | null>)
+          if (freshTask?.status === 'running') {
+            try {
+              await window.api.pty.restart(task.id, xterm.cols, xterm.rows)
+              updateTask(task.id, { status: 'running', updated_at: Math.floor(Date.now() / 1000) })
+              if (logs.length > 0) {
+                xterm.write('\r\n\x1b[90m─── Session resumed ───\x1b[0m\r\n')
+              }
+            } catch {
+              xterm.write('\r\n\x1b[31m✗ Could not resume session — use Restart button\x1b[0m\r\n')
             }
-          } catch {
-            xterm.write('\r\n\x1b[31m✗ Could not resume session — use Restart button\x1b[0m\r\n')
+          } else {
+            // Task is no longer running in DB — sync store and show restart prompt
+            if (freshTask?.status) {
+              updateTask(task.id, { status: freshTask.status as Task['status'], updated_at: Math.floor(Date.now() / 1000) })
+            }
+            setNoSession(true)
+            xterm.write('\r\n\x1b[1;33m⚠ No active session — click Restart to resume\x1b[0m\r\n')
           }
         } else if (!hasSession) {
           setNoSession(true)
