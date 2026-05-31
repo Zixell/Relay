@@ -26,7 +26,9 @@ export function getSettingForClient(key: string): string {
   // Returns masked value for sensitive keys so the renderer can show "set" state
   const val = getSetting(key)
   if (!val) return ''
-  if (key.toLowerCase().includes('key') || key.toLowerCase().includes('secret')) {
+  const lk = key.toLowerCase()
+  // File paths are not sensitive — don't mask them
+  if ((lk.includes('key') || lk.includes('secret')) && !lk.includes('path')) {
     return val.slice(0, 8) + '•'.repeat(Math.min(val.length - 8, 24))
   }
   return val

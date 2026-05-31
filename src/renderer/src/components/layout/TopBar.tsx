@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Plus, Search, GitBranch, ArrowUp, ArrowDown, Check, CheckCircle, XCircle } from 'lucide-react'
+import { Plus, Search, GitBranch, ArrowUp, Check, CheckCircle, XCircle } from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -18,7 +18,7 @@ const isElectron = typeof window !== 'undefined' && !!window.api
 
 // ── Git Branch Widget ────────────────────────────────────────────────────────
 
-function GitBranchWidget({ cwd, targetBranch }: { cwd: string | null; targetBranch?: string | null }) {
+function GitBranchWidget({ cwd, worktreePath, targetBranch }: { cwd: string | null; worktreePath?: string | null; targetBranch?: string | null }) {
   const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [commitOpen, setCommitOpen] = useState(false)
@@ -27,16 +27,19 @@ function GitBranchWidget({ cwd, targetBranch }: { cwd: string | null; targetBran
   const menuRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
-  // Fetch git status to know if it's a valid repo (needed for operations)
+  // Fetch git branch from the worktree specifically — the project directory may be
+  // checked out to a different branch (e.g. after a merge) and must not affect the display.
   useEffect(() => {
-    if (!cwd || !isElectron) { setGitBranch(null); return }
-    window.api.git.getWorkingStatus(cwd)
+    const fetchPath = worktreePath || cwd
+    if (!fetchPath || !isElectron) { setGitBranch(null); return }
+    window.api.git.getWorkingStatus(fetchPath)
       .then((s: { isGitRepo: boolean; branch: string }) => setGitBranch(s.isGitRepo ? s.branch : null))
       .catch(() => setGitBranch(null))
-  }, [cwd])
+  }, [worktreePath, cwd])
 
-  // Display targetBranch (set at task creation) if available, else fall back to git branch
-  const branch = targetBranch || gitBranch
+  // When task has a worktree: show its actual git branch (stable, unaffected by merge).
+  // When no worktree: show targetBranch set at task creation (fixes "always shows main" bug).
+  const branch = worktreePath ? gitBranch : (targetBranch || gitBranch)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -60,26 +63,16 @@ function GitBranchWidget({ cwd, targetBranch }: { cwd: string | null; targetBran
     setMenuOpen(false)
     setBusy(true)
     try {
-      const result = await window.api.git.push(cwd)
+      // Push to targetBranch on origin so the task's changes are published under
+      // the merge-target branch name rather than the internal relay/task-XXXXXXXX branch.
+      const result = await window.api.git.push(cwd, targetBranch || undefined)
       const reason = [result.stderr, result.stdout].filter(Boolean).join('\n').trim()
-      showToast(result.success ? 'Pushed to origin' : (reason || 'Push failed'), result.success)
+      showToast(
+        result.success ? `Pushed to origin/${targetBranch || 'HEAD'}` : (reason || 'Push failed'),
+        result.success
+      )
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Push failed', false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handlePull = async () => {
-    if (!cwd || !isElectron || busy) return
-    setMenuOpen(false)
-    setBusy(true)
-    try {
-      const result = await window.api.git.pull(cwd)
-      const reason = [result.stderr, result.stdout].filter(Boolean).join('\n').trim()
-      showToast(result.success ? 'Pulled from origin' : (reason || 'Pull failed'), result.success)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Pull failed', false)
     } finally {
       setBusy(false)
     }
@@ -145,14 +138,7 @@ function GitBranchWidget({ cwd, targetBranch }: { cwd: string | null; targetBran
               onClick={handlePush}
             >
               <ArrowUp className="w-3.5 h-3.5 text-zinc-400" />
-              Push
-            </button>
-            <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
-              onClick={handlePull}
-            >
-              <ArrowDown className="w-3.5 h-3.5 text-zinc-400" />
-              Pull
+              <span>Push{targetBranch ? ` ${targetBranch}` : ''}</span>
             </button>
           </div>
         )}
@@ -185,6 +171,11 @@ export function TopBar() {
   const selectedTaskBranch = useAppStore((s) => {
     const task = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : null
     return task?.branch ?? null
+  })
+
+  const selectedTaskWorktreePath = useAppStore((s) => {
+    const task = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : null
+    return task?.worktree_path ?? null
   })
 
   return (
@@ -244,7 +235,7 @@ export function TopBar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        <GitBranchWidget cwd={activePath} targetBranch={selectedTaskBranch} />
+        <GitBranchWidget cwd={activePath} worktreePath={selectedTaskWorktreePath} targetBranch={selectedTaskBranch} />
 
         <button className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-white/[0.06] bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] hover:border-white/10 text-xs transition-all duration-100">
           <Search className="w-3.5 h-3.5" />

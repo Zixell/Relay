@@ -35,7 +35,6 @@ import {
   stageFiles,
   commitStaged,
   pushOrigin,
-  pullOrigin,
   mergeBranch,
   ensureBranchExists,
   commitAllAndMerge
@@ -348,8 +347,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('git:commit', (_, { cwd, message }: { cwd: string; message: string }) =>
     commitStaged(cwd, message)
   )
-  ipcMain.handle('git:push', (_, cwd: string) => pushOrigin(cwd))
-  ipcMain.handle('git:pull', (_, cwd: string) => pullOrigin(cwd))
+  ipcMain.handle('git:push', (_, { cwd, branch }: { cwd: string; branch?: string }) => pushOrigin(cwd, branch))
   ipcMain.handle('git:merge', (_, { cwd, branch, targetBranch }: { cwd: string; branch: string; targetBranch?: string }) =>
     mergeBranch(cwd, branch, targetBranch)
   )
