@@ -222,29 +222,41 @@ export function commitStaged(cwd: string, message: string): { success: boolean; 
 
 export async function pushOrigin(cwd: string, targetBranch?: string): Promise<{ success: boolean; stderr: string; stdout: string }> {
   const refspec = targetBranch ? `HEAD:refs/heads/${targetBranch}` : 'HEAD'
-  const args: string[] = ['push', 'origin', refspec]
 
-  // Inject SSH key via git -c core.sshCommand — more reliable than GIT_SSH_COMMAND
-  // env var on Windows (where git runs SSH through its own MSYS2 shell).
-  const rawKeyPath = getSetting('GIT_SSH_KEY_PATH')
+  // Start with the standard git env (includes SSH_AUTH_SOCK for Windows agent)
+  const env = buildGitEnv()
   let keyNote = ''
+
+  const rawKeyPath = getSetting('GIT_SSH_KEY_PATH')
   if (rawKeyPath) {
+    // Expand ~ and normalise to forward slashes first
     const expandedPath = rawKeyPath.replace(/^~/, os.homedir()).replace(/\\/g, '/')
+
     if (fs.existsSync(expandedPath)) {
-      // Git for Windows runs core.sshCommand through its MSYS2/POSIX shell, so the
-      // key path must be in POSIX format: C:/Users/... → /c/Users/...
-      const posixPath = process.platform === 'win32'
+      // Git for Windows interprets GIT_SSH_COMMAND through its bundled MSYS2 sh.exe.
+      // MSYS2 uses /c/Users/... drive notation — C:/Users/... is NOT reliably handled
+      // by MSYS2's SSH binary when passed as -i argument inside sh.exe context.
+      const sshPath = process.platform === 'win32'
         ? expandedPath.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
         : expandedPath
-      // Prepend -c so git uses this command for the push: git -c core.sshCommand=... push
-      args.unshift('-c', `core.sshCommand=ssh -i "${posixPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`)
-      keyNote = `[key: ${expandedPath}]`
+
+      env['GIT_SSH_COMMAND'] = `ssh -i "${sshPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+      keyNote = `[SSH key: ${sshPath}]`
     } else {
-      keyNote = `[key not found: ${expandedPath}]`
+      keyNote = `[SSH key not found: ${expandedPath}]`
     }
   }
 
-  const result = await gitAsync(args, cwd)
+  const result = await new Promise<{ success: boolean; stdout: string; stderr: string }>((resolve) => {
+    const child = spawn('git', ['push', 'origin', refspec], { cwd, env, windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+    child.on('close', (code) => resolve({ success: code === 0, stdout: stdout.trim(), stderr: stderr.trim() }))
+    child.on('error', (err) => resolve({ success: false, stdout: '', stderr: err.message }))
+  })
+
   if (!result.success && keyNote) {
     result.stderr = `${result.stderr}\n${keyNote}`.trim()
   }
