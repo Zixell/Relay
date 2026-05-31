@@ -13,6 +13,7 @@ import {
   insertTaskEvent,
   updateTaskStatus,
   updateTaskNotes,
+  updateTaskClaudeSessionId,
   appendTaskSummary,
   deleteTask
 } from '../db'
@@ -22,20 +23,22 @@ import {
   resizePty,
   killPtySession,
   getActiveSessions,
-  unlockTaskStatus
+  unlockTaskStatus,
+  watchForNewClaudeSession
 } from '../pty/manager'
 import {
   getGitChanges,
   getFileDiff,
-  ensureBranch,
   getCurrentCommit,
   getLocalBranches,
   getWorkingDirStatus,
   stageFiles,
   commitStaged,
   pushOrigin,
-  pullOrigin
+  pullOrigin,
+  mergeBranch
 } from '../git'
+import { addWorktree, removeWorktree } from '../git/worktree'
 import { formatSummaryAsContext, isClaudeCliAvailable } from '../summary/generator'
 import { getSetting, setSetting, getSettingForClient } from '../settings'
 
@@ -68,18 +71,30 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     'tasks:create',
     (_, { projectId, title, prompt, processType, branch, cwd, cols = 80, rows = 24 }) => {
-      // Ensure the git branch exists and is checked out before starting the session.
-      // Throws with a descriptive message if checkout/creation fails — propagates to the modal.
+      const id = randomUUID()
+
+      // Create an isolated git worktree for this task so multiple tasks can run
+      // in parallel without branch-switching conflicts in the main checkout.
+      let worktreePath = ''
       let branchCreated = false
-      if (branch && cwd) {
-        const result = ensureBranch(cwd, branch)
-        branchCreated = result.created
+      if (cwd) {
+        try {
+          const result = addWorktree(cwd, id, branch)
+          worktreePath = result.worktreePath
+          branchCreated = result.branchCreated
+        } catch (err) {
+          if (branch) throw err  // user chose an explicit branch — surface the error
+          // Non-git project or no branch specified: fall back to running in project dir
+          console.warn('[relay] Worktree creation skipped, running in project directory:', err)
+        }
       }
 
-      // Record the HEAD commit at session start so Files tab can scope the diff
-      const startCommit = cwd ? getCurrentCommit(cwd) : ''
+      // The effective working directory is the worktree (if created) or the project root
+      const effectiveCwd = worktreePath || cwd || process.cwd()
 
-      const id = randomUUID()
+      // Record the HEAD commit at session start so the Files tab can scope the diff
+      const startCommit = effectiveCwd ? getCurrentCommit(effectiveCwd) : ''
+
       insertTask({
         id,
         project_id: projectId,
@@ -87,6 +102,7 @@ export function registerIpcHandlers(): void {
         prompt,
         process_type: processType,
         branch,
+        worktree_path: worktreePath || undefined,
         metadata: JSON.stringify({ startCommit })
       })
 
@@ -99,20 +115,21 @@ export function registerIpcHandlers(): void {
         metadata: JSON.stringify({ processType })
       })
 
-      if (branch) {
+      if (branch || worktreePath) {
+        const worktreeNote = worktreePath ? ` (worktree: ${worktreePath})` : ''
         insertTaskEvent({
           id: randomUUID(),
           task_id: id,
           type: 'system',
           content: branchCreated
-            ? `Created and switched to branch: ${branch}`
-            : `Switched to existing branch: ${branch}`
+            ? `Created branch: ${branch || `relay/task-${id.slice(0, 8)}`}${worktreeNote}`
+            : worktreePath
+              ? `Using branch: ${branch || 'current'}${worktreeNote}`
+              : `Switched to existing branch: ${branch}`
         })
       }
 
       // Build command from process type.
-      // Agent commands use one-shot/print flags so the process exits when the task is done,
-      // allowing the task status to transition to Completed automatically.
       const agentShell = process.platform === 'win32' ? 'cmd.exe' : 'bash'
       const skipPerms = getSetting('CLAUDE_SKIP_PERMISSIONS') !== 'false'
       const claudeArgs = skipPerms ? ['--dangerously-skip-permissions'] : []
@@ -126,7 +143,16 @@ export function registerIpcHandlers(): void {
       const { cmd, args } = commands[processType] ?? commands.generic
       // All agent processes receive the prompt as keyboard input after startup
       const sendPrompt = processType !== 'generic'
-      createPtySession(id, cmd, args, cwd || process.cwd(), undefined, sendPrompt ? prompt : undefined, cols, rows)
+
+      // For claude-code: snapshot existing session files BEFORE launch, then
+      // watch for the new one Claude creates — its UUID filename is the session ID.
+      if (processType === 'claude-code') {
+        watchForNewClaudeSession((sessionId) => {
+          updateTaskClaudeSessionId(id, sessionId)
+        })
+      }
+
+      createPtySession(id, cmd, args, effectiveCwd, undefined, sendPrompt ? prompt : undefined, cols, rows)
 
       return { id, projectId, title, prompt, processType, branch, status: 'running' }
     }
@@ -226,27 +252,43 @@ export function registerIpcHandlers(): void {
     const task = getTaskById(taskId) as {
       process_type: string
       project_path: string
+      worktree_path?: string
       branch?: string
       summary?: string
+      claude_session_id?: string
     } | null
     if (!task) throw new Error('Task not found')
 
     killPtySession(taskId)
 
     const skipPermsRestart = getSetting('CLAUDE_SKIP_PERMISSIONS') !== 'false'
-    const claudeArgsRestart = skipPermsRestart ? ['--dangerously-skip-permissions'] : []
-    const commands: Record<string, { cmd: string; args: string[] }> = {
-      'claude-code': { cmd: 'claude', args: claudeArgsRestart },
-      aider: { cmd: 'aider', args: ['--yes'] },
-      opencode: { cmd: 'opencode', args: [] },
-      generic: { cmd: process.platform === 'win32' ? 'cmd.exe' : 'bash', args: [] }
-    }
-    const { cmd, args } = commands[task.process_type] ?? commands.generic
+    const claudeBaseArgs = skipPermsRestart ? ['--dangerously-skip-permissions'] : []
 
-    // Inject all previous session summaries as context on restart (only if setting is enabled)
-    const isAgent = task.process_type !== 'generic'
+    let cmd: string
+    let args: string[]
+
+    // For claude-code with a saved session ID, resume the existing session
+    if (task.process_type === 'claude-code' && task.claude_session_id) {
+      cmd = 'claude'
+      args = ['--resume', task.claude_session_id, ...claudeBaseArgs]
+    } else {
+      const commands: Record<string, { cmd: string; args: string[] }> = {
+        'claude-code': { cmd: 'claude', args: claudeBaseArgs },
+        aider: { cmd: 'aider', args: ['--yes'] },
+        opencode: { cmd: 'opencode', args: [] },
+        generic: { cmd: process.platform === 'win32' ? 'cmd.exe' : 'bash', args: [] }
+      }
+      const resolved = commands[task.process_type] ?? commands.generic
+      cmd = resolved.cmd
+      args = resolved.args
+    }
+
+    // Inject context on restart only when NOT resuming a Claude session
+    // (resuming already restores the full conversation history)
     let contextPrompt: string | undefined
-    if (isAgent && getSetting('AUTO_INJECT_CONTEXT') === 'true') {
+    const isAgent = task.process_type !== 'generic'
+    const isResuming = task.process_type === 'claude-code' && !!task.claude_session_id
+    if (isAgent && !isResuming && getSetting('AUTO_INJECT_CONTEXT') === 'true') {
       const summaryRows = getTaskSummaries(taskId)
       if (summaryRows.length > 0) {
         const summaries = summaryRows.map((r) => JSON.parse(r.summary_json))
@@ -254,10 +296,28 @@ export function registerIpcHandlers(): void {
       }
     }
 
-    createPtySession(taskId, cmd, args, task.project_path, undefined, contextPrompt, cols, rows)
+    // Use the task's worktree if it exists, otherwise fall back to the project root
+    const sessionCwd = task.worktree_path || task.project_path
+    createPtySession(taskId, cmd, args, sessionCwd, undefined, contextPrompt, cols, rows)
 
     updateTaskStatus(taskId, 'running')
     return { success: true }
+  })
+
+  // --- Worktree ---
+  ipcMain.handle('worktree:remove', (_, { taskId, force }: { taskId: string; force?: boolean }) => {
+    const task = getTaskById(taskId) as {
+      project_path: string
+      worktree_path?: string
+      status: string
+    } | null
+    if (!task) throw new Error('Task not found')
+    if (!task.worktree_path) return { success: true, message: 'No worktree associated with this task' }
+
+    // Stop any running session first
+    killPtySession(taskId)
+
+    return removeWorktree(task.project_path, task.worktree_path, force ?? false)
   })
 
   // --- Settings ---
@@ -284,6 +344,9 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle('git:push', (_, cwd: string) => pushOrigin(cwd))
   ipcMain.handle('git:pull', (_, cwd: string) => pullOrigin(cwd))
+  ipcMain.handle('git:merge', (_, { cwd, branch }: { cwd: string; branch: string }) =>
+    mergeBranch(cwd, branch)
+  )
 
   ipcMain.handle(
     'git:getChanges',

@@ -61,6 +61,12 @@ const api = {
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', { key, value })
   },
 
+  // Worktree management
+  worktree: {
+    remove: (taskId: string, force?: boolean) =>
+      ipcRenderer.invoke('worktree:remove', { taskId, force })
+  },
+
   // Git
   git: {
     getChanges: (cwd: string, branch?: string, startCommit?: string) =>
@@ -76,7 +82,8 @@ const api = {
     commit: (cwd: string, message: string) =>
       ipcRenderer.invoke('git:commit', { cwd, message }),
     push: (cwd: string) => ipcRenderer.invoke('git:push', cwd),
-    pull: (cwd: string) => ipcRenderer.invoke('git:pull', cwd)
+    pull: (cwd: string) => ipcRenderer.invoke('git:pull', cwd),
+    merge: (cwd: string, branch: string) => ipcRenderer.invoke('git:merge', { cwd, branch })
   },
 
   // PTY
@@ -119,3 +126,4 @@ const api = {
 contextBridge.exposeInMainWorld('api', api)
 
 export type RelayAPI = typeof api
+

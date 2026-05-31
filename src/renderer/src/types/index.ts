@@ -16,6 +16,7 @@ export interface Task {
   project_id: string
   project_name: string
   project_path: string
+  worktree_path?: string
   title: string
   prompt: string
   process_type: ProcessType
@@ -30,6 +31,7 @@ export interface Task {
   notes?: string
   summary?: string
   metadata?: string
+  claude_session_id?: string
 }
 
 export interface TaskEvent {
@@ -110,3 +112,4 @@ export const STATUS_CONFIG: Record<
     dot: 'bg-zinc-500'
   }
 }
+

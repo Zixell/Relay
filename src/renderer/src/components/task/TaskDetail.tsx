@@ -59,12 +59,13 @@ export function TaskDetail({ task }: TaskDetailProps) {
     const startCommit: string | undefined = (() => {
       try { return task.metadata ? JSON.parse(task.metadata).startCommit : undefined } catch { return undefined }
     })()
-    window.api.git.getChanges(task.project_path, task.branch, startCommit).then((data) => {
+    const gitCwd = task.worktree_path || task.project_path
+    window.api.git.getChanges(gitCwd, task.branch, startCommit).then((data) => {
       if (data.files.length !== task.changed_files_count) {
         updateTask(task.id, { changed_files_count: data.files.length })
       }
     }).catch(() => {})
-  }, [task.id, task.project_path, task.branch])
+  }, [task.id, task.project_path, task.worktree_path, task.branch])
 
   // Live summary updates from PTY — receives full array JSON
   useEffect(() => {

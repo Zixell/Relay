@@ -173,7 +173,7 @@ export function TopBar() {
 
   const activePath = useAppStore((s) => {
     const task = s.selectedTaskId ? s.tasks.find((t) => t.id === s.selectedTaskId) : null
-    if (task) return task.project_path
+    if (task) return task.worktree_path || task.project_path
     if (s.selectedProjectId) return s.projects.find((p) => p.id === s.selectedProjectId)?.path ?? null
     return null
   })

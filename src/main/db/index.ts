@@ -39,6 +39,7 @@ function createSchema(): void {
       process_type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       branch TEXT,
+      worktree_path TEXT,
       started_at INTEGER,
       completed_at INTEGER,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -47,7 +48,8 @@ function createSchema(): void {
       changed_files_count INTEGER DEFAULT 0,
       notes TEXT,
       summary TEXT,
-      metadata TEXT DEFAULT '{}'
+      metadata TEXT DEFAULT '{}',
+      claude_session_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS task_events (
@@ -81,6 +83,8 @@ function createSchema(): void {
 
   // Migrate existing databases — ignore errors if column already exists
   try { db.exec('ALTER TABLE tasks ADD COLUMN summary TEXT') } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN worktree_path TEXT') } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE tasks ADD COLUMN claude_session_id TEXT') } catch { /* already exists */ }
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS task_summaries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,13 +159,19 @@ export function insertTask(task: {
   prompt: string
   process_type: string
   branch?: string
+  worktree_path?: string
   metadata?: string
 }) {
   if (!db) return
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, prompt, process_type, branch, status, started_at, metadata)
-     VALUES (@id, @project_id, @title, @prompt, @process_type, @branch, 'running', unixepoch(), @metadata)`
-  ).run({ ...task, branch: task.branch ?? null, metadata: task.metadata ?? '{}' })
+    `INSERT INTO tasks (id, project_id, title, prompt, process_type, branch, worktree_path, status, started_at, metadata)
+     VALUES (@id, @project_id, @title, @prompt, @process_type, @branch, @worktree_path, 'running', unixepoch(), @metadata)`
+  ).run({
+    ...task,
+    branch: task.branch ?? null,
+    worktree_path: task.worktree_path ?? null,
+    metadata: task.metadata ?? '{}'
+  })
 }
 
 export function updateTaskStatus(
@@ -186,6 +196,11 @@ export function updateTaskStatus(
     now,
     id
   )
+}
+
+export function updateTaskClaudeSessionId(id: string, claudeSessionId: string) {
+  if (!db) return
+  db.prepare('UPDATE tasks SET claude_session_id = ?, updated_at = unixepoch() WHERE id = ?').run(claudeSessionId, id)
 }
 
 export function updateTaskNotes(id: string, notes: string) {

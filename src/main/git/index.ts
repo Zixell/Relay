@@ -1,4 +1,5 @@
 import { execSync, spawnSync } from 'child_process'
+import os from 'os'
 
 export interface GitFileChange {
   path: string
@@ -23,10 +24,22 @@ function run(cmd: string, cwd: string): string {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 8000
-    }).trim()
+    }).trimEnd()
   } catch {
     return ''
   }
+}
+
+// Build env for git subprocesses — ensures SSH works from Electron on Windows
+function buildGitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: os.homedir() }
+  if (process.platform === 'win32' && !env.SSH_AUTH_SOCK) {
+    // Git for Windows' SSH (Cygwin-based) can connect to the Windows OpenSSH
+    // Agent service via this named pipe — but only if SSH_AUTH_SOCK is set.
+    // In a terminal session it may be inherited; in Electron it never is.
+    env.SSH_AUTH_SOCK = '//./pipe/openssh-ssh-agent'
+  }
+  return env
 }
 
 // Runs a git command and returns { success, stderr } — does NOT throw
@@ -34,7 +47,8 @@ function git(args: string[], cwd: string): { success: boolean; stdout: string; s
   const result = spawnSync('git', args, {
     cwd,
     encoding: 'utf8',
-    timeout: 10000
+    timeout: 30000,
+    env: buildGitEnv()
   })
   return {
     success: result.status === 0,
@@ -199,6 +213,11 @@ export function pullOrigin(cwd: string): { success: boolean; stderr: string; std
   return { success: result.success, stderr: result.stderr, stdout: result.stdout }
 }
 
+export function mergeBranch(cwd: string, branch: string): { success: boolean; stderr: string; stdout: string } {
+  const result = git(['merge', '--no-ff', branch], cwd)
+  return { success: result.success, stderr: result.stderr, stdout: result.stdout }
+}
+
 export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: string): GitChangesResult {
   const empty: GitChangesResult = {
     isGitRepo: false,
@@ -331,3 +350,4 @@ export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: st
 
   return { isGitRepo: true, branch: targetBranch, baseBranch, files, committedCount, isActiveBranch }
 }
+

@@ -1,6 +1,9 @@
 import { BrowserWindow } from 'electron'
 import { insertTerminalLog, updateTaskStatus, getTaskById, appendTaskSummary, getTaskSummaries, getTaskEvents, getTerminalLogs } from '../db'
 import { generateSessionSummary } from '../summary/generator'
+import { homedir } from 'os'
+import { join } from 'path'
+import { readdirSync, existsSync } from 'fs'
 
 // Lazy-load node-pty so a missing native binding doesn't crash the whole app
 let pty: typeof import('node-pty') | null = null
@@ -60,6 +63,7 @@ function scheduleInactivityCheck(taskId: string): void {
     try {
       const task = getTaskById(taskId) as {
         project_path: string
+        worktree_path?: string
         metadata?: string
       } | null
       if (!task) return
@@ -80,10 +84,13 @@ function scheduleInactivityCheck(taskId: string): void {
         .replace(ANSI_RE, '')
         .replace(/\r/g, '')
 
+      // Use the task's worktree for git context if available; fall back to project root
+      const summaryCwd = task.worktree_path || task.project_path
+
       const summary = await generateSessionSummary(
         taskId,
         userPrompts,
-        task.project_path,
+        summaryCwd,
         meta.startCommit,
         newStatus,
         claudeOutput
@@ -136,6 +143,71 @@ function writeLarge(proc: pty.IPty, text: string, chunkSize = 2048, delayMs = 10
     }
   }
   writeNext()
+}
+
+// ---------------------------------------------------------------------------
+// Claude session file watcher
+// Claude stores each conversation as ~/.claude/projects/**/<uuid>.jsonl.
+// We snapshot existing files before launch, then poll for a new one to
+// appear — its basename (without .jsonl) is the session ID.
+// ---------------------------------------------------------------------------
+const CLAUDE_SESSION_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+
+function scanClaudeSessionFiles(dir: string, found: Set<string>): void {
+  if (!existsSync(dir)) return
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        scanClaudeSessionFiles(join(dir, entry.name), found)
+      } else if (CLAUDE_SESSION_FILE_RE.test(entry.name)) {
+        found.add(join(dir, entry.name))
+      }
+    }
+  } catch { /* skip unreadable paths */ }
+}
+
+/**
+ * Call this BEFORE starting Claude. Returns a stop function.
+ * When Claude creates a new session file, onFound is called with the session UUID.
+ * The watcher stops itself once the ID is found or after `timeoutMs`.
+ */
+export function watchForNewClaudeSession(
+  onFound: (sessionId: string) => void,
+  timeoutMs = 120_000
+): () => void {
+  const projectsDir = join(homedir(), '.claude', 'projects')
+  const before = new Set<string>()
+  scanClaudeSessionFiles(projectsDir, before)
+
+  let stopped = false
+  const stop = (): void => { stopped = true }
+
+  const hardStop = setTimeout(stop, timeoutMs)
+
+  const poll = (): void => {
+    if (stopped) { clearTimeout(hardStop); return }
+
+    const current = new Set<string>()
+    scanClaudeSessionFiles(projectsDir, current)
+
+    for (const file of current) {
+      if (!before.has(file)) {
+        const name = file.split(/[\\/]/).pop() ?? ''
+        const m = CLAUDE_SESSION_FILE_RE.exec(name)
+        if (m) {
+          stopped = true
+          clearTimeout(hardStop)
+          onFound(m[1])
+          return
+        }
+      }
+    }
+
+    setTimeout(poll, 500)
+  }
+
+  setTimeout(poll, 500)
+  return stop
 }
 
 export function createPtySession(
