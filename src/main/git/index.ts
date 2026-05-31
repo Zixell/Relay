@@ -43,7 +43,12 @@ function buildGitEnv(): NodeJS.ProcessEnv {
   // Use a custom SSH identity file if configured in settings
   const sshKeyPath = getSetting('GIT_SSH_KEY_PATH')
   if (sshKeyPath) {
-    env.GIT_SSH_COMMAND = `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+    // Expand ~ and normalise to forward slashes — Git's ssh on Windows
+    // does not expand ~ and chokes on backslashes inside -i.
+    const expandedPath = sshKeyPath
+      .replace(/^~/, os.homedir())
+      .replace(/\\/g, '/')
+    env.GIT_SSH_COMMAND = `ssh -i "${expandedPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
   }
   return env
 }

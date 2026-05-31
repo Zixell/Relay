@@ -72,6 +72,16 @@ function createWindow(): void {
     })
     return result.canceled ? null : result.filePaths[0]
   })
+
+  // File picker (for SSH key selection etc.)
+  ipcMain.handle('dialog:openFile', async (_, opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: opts?.title,
+      filters: opts?.filters
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
 }
 
 app.whenReady().then(() => {
