@@ -1,5 +1,6 @@
-import { execSync, spawnSync } from 'child_process'
+import { execSync, spawnSync, spawn } from 'child_process'
 import os from 'os'
+import fs from 'fs'
 import { getSetting } from '../settings'
 
 export interface GitFileChange {
@@ -48,12 +49,17 @@ function buildGitEnv(): NodeJS.ProcessEnv {
     const expandedPath = sshKeyPath
       .replace(/^~/, os.homedir())
       .replace(/\\/g, '/')
-    env.GIT_SSH_COMMAND = `ssh -i "${expandedPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+    // Only activate IdentitiesOnly if the file actually exists.
+    // A missing/stale path with IdentitiesOnly=yes would block all SSH auth
+    // (including the SSH agent) and produce "Permission denied (publickey)".
+    if (fs.existsSync(expandedPath)) {
+      env.GIT_SSH_COMMAND = `ssh -i "${expandedPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+    }
   }
   return env
 }
 
-// Runs a git command and returns { success, stderr } — does NOT throw
+// Runs a git command synchronously — does NOT throw
 function git(args: string[], cwd: string): { success: boolean; stdout: string; stderr: string } {
   const result = spawnSync('git', args, {
     cwd,
@@ -66,6 +72,19 @@ function git(args: string[], cwd: string): { success: boolean; stdout: string; s
     stdout: (result.stdout ?? '').trim(),
     stderr: (result.stderr ?? '').trim()
   }
+}
+
+// Async variant for network operations (push/fetch) — avoids blocking the Electron main process
+function gitAsync(args: string[], cwd: string): Promise<{ success: boolean; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('git', args, { cwd, env: buildGitEnv(), windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+    child.on('close', (code) => resolve({ success: code === 0, stdout: stdout.trim(), stderr: stderr.trim() }))
+    child.on('error', (err) => resolve({ success: false, stdout: '', stderr: err.message }))
+  })
 }
 
 /**
@@ -214,13 +233,13 @@ export function commitStaged(cwd: string, message: string): { success: boolean; 
   return { success: result.success, stderr: result.stderr }
 }
 
-export function pushOrigin(cwd: string, targetBranch?: string): { success: boolean; stderr: string; stdout: string } {
+export function pushOrigin(cwd: string, targetBranch?: string): Promise<{ success: boolean; stderr: string; stdout: string }> {
   // If a target branch is specified, push local HEAD to that remote branch name.
   // This lets the worktree branch (relay/task-XXXXXXXX) be published under the
   // target branch name on origin without having to rename the local branch.
+  // Uses gitAsync to avoid blocking the Electron main process during network I/O.
   const refspec = targetBranch ? `HEAD:refs/heads/${targetBranch}` : 'HEAD'
-  const result = git(['push', 'origin', refspec], cwd)
-  return { success: result.success, stderr: result.stderr, stdout: result.stdout }
+  return gitAsync(['push', 'origin', refspec], cwd)
 }
 
 export function mergeBranch(cwd: string, branch: string, targetBranch?: string): { success: boolean; stderr: string; stdout: string } {
