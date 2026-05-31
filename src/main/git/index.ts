@@ -229,28 +229,28 @@ export async function pushOrigin(cwd: string, targetBranch?: string): Promise<{ 
 
   const rawKeyPath = getSetting('GIT_SSH_KEY_PATH')
   if (rawKeyPath) {
-    // Expand ~ and normalise to forward slashes first
-    const expandedPath = rawKeyPath.replace(/^~/, os.homedir()).replace(/\\/g, '/')
+    // Expand ~ and normalise backslashes
+    const expanded = rawKeyPath.replace(/^~/, os.homedir()).replace(/\\/g, '/')
 
-    if (fs.existsSync(expandedPath)) {
-      // GIT_SSH_COMMAND is run through Git for Windows' MSYS2 sh.exe, which may
-      // resolve `ssh` to either its own MSYS2 SSH or Windows OpenSSH depending on PATH.
-      // MSYS2 SSH doesn't reliably handle C:/ paths; Windows OpenSSH doesn't handle
-      // /c/ MSYS2 paths. Fix: use Windows OpenSSH explicitly via its absolute path and
-      // pass the key with C:/ forward-slash format that Windows OpenSSH understands.
-      let sshExe = 'ssh'
-      if (process.platform === 'win32') {
-        const winSsh = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe'
-        if (fs.existsSync(winSsh)) {
-          // Quoted with forward slashes so MSYS2 sh.exe can execute the Windows binary
-          sshExe = '"C:/Windows/System32/OpenSSH/ssh.exe"'
-        }
-      }
+    // Resolve the path in both Windows (C:/...) and MSYS2 (/c/...) formats so
+    // fs.existsSync can find it regardless of which format was stored
+    const winStylePath = expanded  // e.g. C:/Users/Roman/.ssh/id_ed25519
+    const msys2StylePath = expanded.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
+    const resolvedPath = fs.existsSync(winStylePath) ? winStylePath
+      : fs.existsSync(msys2StylePath) ? msys2StylePath
+      : null
 
-      env['GIT_SSH_COMMAND'] = `${sshExe} -i "${expandedPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
-      keyNote = `[SSH key: ${expandedPath} via ${sshExe}]`
+    if (resolvedPath) {
+      // GIT_SSH_COMMAND is executed by Git for Windows through MSYS2 sh.exe.
+      // Using `ssh` here means MSYS2 SSH — the same binary git uses normally.
+      // We must pass the key path in MSYS2 format (/c/Users/...) because MSYS2 sh.exe
+      // will path-mangle Windows-style C:/ arguments, breaking Windows OpenSSH.
+      // MSYS2 SSH handles /c/... paths natively and can use the Windows SSH agent socket.
+      const msys2KeyPath = resolvedPath.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
+      env['GIT_SSH_COMMAND'] = `ssh -i "${msys2KeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+      keyNote = `[SSH key: ${msys2KeyPath}]`
     } else {
-      keyNote = `[SSH key not found: ${expandedPath}]`
+      keyNote = `[SSH key not found: ${expanded}]`
     }
   }
 
