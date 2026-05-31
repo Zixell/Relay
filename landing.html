@@ -1588,8 +1588,10 @@
       }
     }, { passive: true })
 
-    // Form submission
-    function handleSubmit(e) {
+    // Form submission — replace FORMSPREE_ID with your actual form ID from formspree.io
+    const FORMSPREE_ENDPOINT = 'https://formspree.io/f/FORMSPREE_ID'
+
+    async function handleSubmit(e) {
       e.preventDefault()
       const btn = document.getElementById('submit-btn')
       const form = document.getElementById('access-form')
@@ -1598,11 +1600,28 @@
       btn.disabled = true
       btn.textContent = 'Sending...'
 
-      // Simulate async submit (replace with real endpoint)
-      setTimeout(() => {
-        form.style.display = 'none'
-        success.classList.add('visible')
-      }, 900)
+      try {
+        const res = await fetch(FORMSPREE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: new FormData(form)
+        })
+
+        if (res.ok) {
+          form.style.display = 'none'
+          success.classList.add('visible')
+        } else {
+          const data = await res.json()
+          const msg = data?.errors?.map(e => e.message).join(', ') || 'Something went wrong.'
+          alert(msg)
+          btn.disabled = false
+          btn.textContent = 'Request Early Access'
+        }
+      } catch {
+        alert('Network error. Please try again.')
+        btn.disabled = false
+        btn.textContent = 'Request Early Access'
+      }
     }
   </script>
 
