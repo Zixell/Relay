@@ -226,11 +226,15 @@ export function mergeBranch(cwd: string, branch: string, targetBranch?: string):
       return { success: false, stderr: `Failed to checkout ${targetBranch}: ${checkout.stderr}`, stdout: '' }
     }
   }
-  const result = git(['merge', '--no-ff', branch], cwd)
-  if (result.success && result.stdout.includes('Already up to date')) {
-    return { success: false, stderr: 'Nothing to merge — the task branch has no new commits. Changes may still be uncommitted.', stdout: result.stdout }
+  const squash = git(['merge', '--squash', branch], cwd)
+  if (!squash.success) {
+    return { success: false, stderr: squash.stderr, stdout: squash.stdout }
   }
-  return { success: result.success, stderr: result.stderr, stdout: result.stdout }
+  if (squash.stdout.includes('Already up to date')) {
+    return { success: false, stderr: 'Nothing to merge — the task branch has no new commits. Changes may still be uncommitted.', stdout: squash.stdout }
+  }
+  const commit = git(['commit', '--no-edit', '-m', `Squashed: ${branch}`], cwd)
+  return { success: commit.success, stderr: commit.stderr, stdout: commit.stdout }
 }
 
 export function ensureBranchExists(cwd: string, branch: string): void {
@@ -277,12 +281,21 @@ export function commitAllAndMerge(
     return { success: false, stderr: `Checkout ${targetBranch} failed: ${checkoutResult.stderr}`, committed }
   }
 
-  // Merge task branch into target
-  const mergeResult = git(['merge', '--no-ff', taskBranch], projectCwd)
-  if (mergeResult.success && mergeResult.stdout.includes('Already up to date')) {
+  // Squash all task-branch commits into a single staged diff (no merge commit)
+  const squashResult = git(['merge', '--squash', taskBranch], projectCwd)
+  if (!squashResult.success) {
+    return { success: false, stderr: squashResult.stderr, committed }
+  }
+  if (squashResult.stdout.includes('Already up to date')) {
     return { success: false, stderr: 'Nothing to merge — no new commits on task branch', committed }
   }
-  return { success: mergeResult.success, stderr: mergeResult.stderr, committed }
+
+  // Commit the squashed changes as one clean commit
+  const squashCommit = git(['commit', '-m', commitMessage], projectCwd)
+  if (!squashCommit.success) {
+    return { success: false, stderr: squashCommit.stderr, committed }
+  }
+  return { success: true, stderr: '', committed }
 }
 
 export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: string): GitChangesResult {
