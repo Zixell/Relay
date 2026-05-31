@@ -233,15 +233,22 @@ export async function pushOrigin(cwd: string, targetBranch?: string): Promise<{ 
     const expandedPath = rawKeyPath.replace(/^~/, os.homedir()).replace(/\\/g, '/')
 
     if (fs.existsSync(expandedPath)) {
-      // Git for Windows interprets GIT_SSH_COMMAND through its bundled MSYS2 sh.exe.
-      // MSYS2 uses /c/Users/... drive notation — C:/Users/... is NOT reliably handled
-      // by MSYS2's SSH binary when passed as -i argument inside sh.exe context.
-      const sshPath = process.platform === 'win32'
-        ? expandedPath.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
-        : expandedPath
+      // GIT_SSH_COMMAND is run through Git for Windows' MSYS2 sh.exe, which may
+      // resolve `ssh` to either its own MSYS2 SSH or Windows OpenSSH depending on PATH.
+      // MSYS2 SSH doesn't reliably handle C:/ paths; Windows OpenSSH doesn't handle
+      // /c/ MSYS2 paths. Fix: use Windows OpenSSH explicitly via its absolute path and
+      // pass the key with C:/ forward-slash format that Windows OpenSSH understands.
+      let sshExe = 'ssh'
+      if (process.platform === 'win32') {
+        const winSsh = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe'
+        if (fs.existsSync(winSsh)) {
+          // Quoted with forward slashes so MSYS2 sh.exe can execute the Windows binary
+          sshExe = '"C:/Windows/System32/OpenSSH/ssh.exe"'
+        }
+      }
 
-      env['GIT_SSH_COMMAND'] = `ssh -i "${sshPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
-      keyNote = `[SSH key: ${sshPath}]`
+      env['GIT_SSH_COMMAND'] = `${sshExe} -i "${expandedPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
+      keyNote = `[SSH key: ${expandedPath} via ${sshExe}]`
     } else {
       keyNote = `[SSH key not found: ${expandedPath}]`
     }
