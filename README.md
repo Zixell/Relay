@@ -137,6 +137,84 @@ src/
 
 ---
 
+## Git push setup (Windows)
+
+Relay uses `git push` under the hood. For it to work without prompting for a passphrase, you need SSH authentication set up correctly on Windows. Follow these steps once.
+
+### 1. Generate an SSH key
+
+Open **PowerShell** or **CMD**:
+
+```powershell
+ssh-keygen -t ed25519 -C "your@email.com"
+```
+
+When asked where to save it, press **Enter** to accept the default (`C:\Users\<you>\.ssh\id_ed25519`).
+When asked for a passphrase, you can press **Enter** twice to leave it empty (simpler), or set one if you prefer — the remaining steps handle it either way.
+
+### 2. Add the public key to GitHub
+
+Copy the public key to your clipboard:
+
+```powershell
+Get-Content C:\Users\$env:USERNAME\.ssh\id_ed25519.pub | clip
+```
+
+Then go to **GitHub → Settings → SSH and GPG keys → New SSH key**, paste it, and save.
+
+Verify it works:
+
+```powershell
+ssh -T git@github.com
+# Hi <username>! You've successfully authenticated...
+```
+
+### 3. Start the Windows OpenSSH agent and add your key
+
+Run this **once** in PowerShell as **Administrator** to enable the agent service permanently:
+
+```powershell
+Set-Service -Name ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+```
+
+Then add your key (no admin required):
+
+```powershell
+ssh-add C:\Users\$env:USERNAME\.ssh\id_ed25519
+```
+
+If you set a passphrase in step 1, enter it now. It will be stored in the agent — you won't be asked again after reboots.
+
+Verify the key is loaded:
+
+```powershell
+ssh-add -l
+# 256 SHA256:... your@email.com (ED25519)
+```
+
+### 4. Make Git use Windows OpenSSH
+
+By default, Git for Windows uses its own bundled SSH (MSYS2), which does not see the Windows OpenSSH agent. Tell git to use the Windows binary instead:
+
+```powershell
+git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"
+```
+
+### 5. Verify end-to-end
+
+```powershell
+ssh -T git@github.com
+# Hi <username>! You've successfully authenticated...
+
+git push
+# works without passphrase prompt
+```
+
+After this, **Relay's Push button will work** — the app spawns `git push` in the same environment and inherits the Windows OpenSSH agent automatically.
+
+---
+
 ## License
 
 MIT
