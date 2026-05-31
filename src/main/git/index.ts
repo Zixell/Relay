@@ -1,5 +1,6 @@
 import { execSync, spawnSync } from 'child_process'
 import os from 'os'
+import { getSetting } from '../settings'
 
 export interface GitFileChange {
   path: string
@@ -38,6 +39,11 @@ function buildGitEnv(): NodeJS.ProcessEnv {
     // Agent service via this named pipe — but only if SSH_AUTH_SOCK is set.
     // In a terminal session it may be inherited; in Electron it never is.
     env.SSH_AUTH_SOCK = '//./pipe/openssh-ssh-agent'
+  }
+  // Use a custom SSH identity file if configured in settings
+  const sshKeyPath = getSetting('GIT_SSH_KEY_PATH')
+  if (sshKeyPath) {
+    env.GIT_SSH_COMMAND = `ssh -i "${sshKeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
   }
   return env
 }
@@ -203,13 +209,12 @@ export function commitStaged(cwd: string, message: string): { success: boolean; 
   return { success: result.success, stderr: result.stderr }
 }
 
-export function pushOrigin(cwd: string): { success: boolean; stderr: string; stdout: string } {
-  const result = git(['push', 'origin', 'HEAD'], cwd)
-  return { success: result.success, stderr: result.stderr, stdout: result.stdout }
-}
-
-export function pullOrigin(cwd: string): { success: boolean; stderr: string; stdout: string } {
-  const result = git(['pull'], cwd)
+export function pushOrigin(cwd: string, targetBranch?: string): { success: boolean; stderr: string; stdout: string } {
+  // If a target branch is specified, push local HEAD to that remote branch name.
+  // This lets the worktree branch (relay/task-XXXXXXXX) be published under the
+  // target branch name on origin without having to rename the local branch.
+  const refspec = targetBranch ? `HEAD:refs/heads/${targetBranch}` : 'HEAD'
+  const result = git(['push', 'origin', refspec], cwd)
   return { success: result.success, stderr: result.stderr, stdout: result.stdout }
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Terminal, CheckCircle2, XCircle, FileText, Info, Cpu } from 'lucide-react'
+import { Terminal, CheckCircle2, XCircle, FileText, Info, Cpu, Key } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [claudeAvailable, setClaudeAvailable] = useState<boolean | null>(null)
   const [autoInjectContext, setAutoInjectContext] = useState(false)
   const [skipPermissions, setSkipPermissions] = useState(true)
+  const [sshKeyPath, setSshKeyPath] = useState('')
+  const [sshKeySaved, setSshKeySaved] = useState(false)
 
   useEffect(() => {
     if (!open || !isElectron) return
@@ -33,6 +35,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       // default true — matches original behaviour
       setSkipPermissions(val !== 'false')
     })
+    window.api.settings.get('GIT_SSH_KEY_PATH').then((val: string) => {
+      setSshKeyPath(val || '')
+    })
   }, [open])
 
   function toggleAutoInjectContext() {
@@ -45,6 +50,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     const next = !skipPermissions
     setSkipPermissions(next)
     if (isElectron) window.api.settings.set('CLAUDE_SKIP_PERMISSIONS', String(next))
+  }
+
+  function saveSshKeyPath() {
+    if (isElectron) window.api.settings.set('GIT_SSH_KEY_PATH', sshKeyPath.trim())
+    setSshKeySaved(true)
+    setTimeout(() => setSshKeySaved(false), 2000)
   }
 
   return (
@@ -194,6 +205,40 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   making file changes. Takes effect on the next session start or restart.
                 </p>
               </div>
+            </div>
+          </div>
+
+          <div className="h-px bg-white/[0.05]" />
+
+          {/* SSH key for git operations */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Key className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="text-sm font-medium text-zinc-200">Git SSH Key</span>
+            </div>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              Path to the SSH private key used for git push/pull operations.
+              Leave empty to use the default SSH agent or key (~/.ssh/id_rsa).
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={sshKeyPath}
+                onChange={(e) => setSshKeyPath(e.target.value)}
+                placeholder="~/.ssh/id_rsa"
+                className="flex-1 h-8 px-3 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-white/20 font-mono"
+              />
+              <button
+                onClick={saveSshKeyPath}
+                className={cn(
+                  'h-8 px-3 rounded-lg border text-xs font-medium transition-colors shrink-0',
+                  sshKeySaved
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                    : 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]'
+                )}
+              >
+                {sshKeySaved ? 'Saved' : 'Save'}
+              </button>
             </div>
           </div>
 
