@@ -408,8 +408,11 @@ export function killAllSessions(): void {
   for (const timer of inactivityTimers.values()) clearTimeout(timer)
   inactivityTimers.clear()
 
-  sessionStatuses.clear()
-  lockedStatuses.clear()
+  // Do NOT clear lockedStatuses or sessionStatuses here.
+  // Clearing lockedStatuses before killing processes causes a race: if the PTY
+  // emits a final data chunk after kill() but before the process dies, onData fires
+  // and emitStatusChange('running') overwrites the DB status back to 'running'.
+  // On the next app start resetRunningTasks() would then flip it to 'paused'.
   for (const [sessionId, session] of sessions) {
     killedSessions.add(sessionId)
     session.process.kill()
