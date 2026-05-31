@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { FileCode, FilePlus, FileMinus, FileEdit, RefreshCw, GitBranch, GitCommit, AlertTriangle, GitMerge, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { FileCode, FilePlus, FileMinus, FileEdit, RefreshCw, GitBranch, GitCommit, AlertTriangle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { getMockFileChanges } from '../../lib/mockData'
 import { useAppStore } from '../../stores/appStore'
@@ -21,16 +21,12 @@ interface FileChangesProps {
   task: Task
 }
 
-type MergeState = 'idle' | 'merging' | 'success' | 'error'
-
 export function FileChanges({ task }: FileChangesProps) {
   const [result, setResult] = useState<GitResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [diffFile, setDiffFile] = useState<FileChange | null>(null)
-  const [mergeState, setMergeState] = useState<MergeState>('idle')
-  const [mergeError, setMergeError] = useState<string | null>(null)
   const updateTask = useAppStore((s) => s.updateTask)
 
   const startCommit: string | undefined = (() => {
@@ -55,7 +51,7 @@ export function FileChanges({ task }: FileChangesProps) {
     if (isManual) setRefreshing(true)
     try {
       const gitCwd = task.worktree_path || task.project_path
-      const data = await window.api.git.getChanges(gitCwd, task.branch, startCommit)
+      const data = await window.api.git.getChanges(gitCwd, undefined, startCommit)
       setResult(data)
       setLastRefreshed(new Date())
       // Keep changed_files_count in sync so the tab label stays accurate
@@ -68,7 +64,7 @@ export function FileChanges({ task }: FileChangesProps) {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [task.id, task.project_path, task.worktree_path, task.branch, task.changed_files_count, startCommit, updateTask])
+  }, [task.id, task.project_path, task.worktree_path, task.changed_files_count, startCommit, updateTask])
 
   // Initial load
   useEffect(() => {
@@ -80,25 +76,6 @@ export function FileChanges({ task }: FileChangesProps) {
     const id = setInterval(() => load(), 8000)
     return () => clearInterval(id)
   }, [load])
-
-  const handleMerge = useCallback(async () => {
-    if (!isElectron || !result?.branch || !task.project_path) return
-    setMergeState('merging')
-    setMergeError(null)
-    try {
-      const res = await window.api.git.merge(task.project_path, result.branch)
-      if (res.success) {
-        setMergeState('success')
-        setTimeout(() => setMergeState('idle'), 3000)
-      } else {
-        setMergeState('error')
-        setMergeError(res.stderr || 'Merge failed')
-      }
-    } catch (err) {
-      setMergeState('error')
-      setMergeError(String(err))
-    }
-  }, [result?.branch, task.project_path])
 
   if (loading) {
     return (
@@ -172,41 +149,8 @@ export function FileChanges({ task }: FileChangesProps) {
               <span>{result.committedCount} commit{result.committedCount !== 1 ? 's' : ''}</span>
             </div>
           )}
-          {task.worktree_path && result.branch && (
-            <button
-              onClick={handleMerge}
-              disabled={mergeState === 'merging'}
-              title={`Merge ${result.branch} into ${task.project_path}`}
-              className={cn(
-                'flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
-                mergeState === 'idle' && 'text-blue-400 hover:bg-blue-500/10 hover:text-blue-300',
-                mergeState === 'merging' && 'text-zinc-500 cursor-not-allowed',
-                mergeState === 'success' && 'text-emerald-400',
-                mergeState === 'error' && 'text-red-400 hover:bg-red-500/10'
-              )}
-            >
-              {mergeState === 'merging' && <Loader2 className="w-3 h-3 animate-spin" />}
-              {mergeState === 'success' && <CheckCircle2 className="w-3 h-3" />}
-              {mergeState === 'error' && <XCircle className="w-3 h-3" />}
-              {mergeState === 'idle' && <GitMerge className="w-3 h-3" />}
-              <span>
-                {mergeState === 'merging' ? 'Merging…' :
-                 mergeState === 'success' ? 'Merged!' :
-                 mergeState === 'error' ? 'Failed' :
-                 'Merge to main'}
-              </span>
-            </button>
-          )}
         </div>
       </div>
-
-      {/* Merge error */}
-      {mergeState === 'error' && mergeError && (
-        <div className="flex items-start gap-2 mb-3 px-2 py-1.5 rounded-lg bg-red-400/[0.06] border border-red-400/20 text-[11px] text-red-400">
-          <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-          <span className="font-mono break-all">{mergeError}</span>
-        </div>
-      )}
 
       {/* Warning: branch not currently checked out */}
       {!result.isActiveBranch && (

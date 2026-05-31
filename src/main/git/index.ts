@@ -213,9 +213,70 @@ export function pullOrigin(cwd: string): { success: boolean; stderr: string; std
   return { success: result.success, stderr: result.stderr, stdout: result.stdout }
 }
 
-export function mergeBranch(cwd: string, branch: string): { success: boolean; stderr: string; stdout: string } {
+export function mergeBranch(cwd: string, branch: string, targetBranch?: string): { success: boolean; stderr: string; stdout: string } {
+  if (targetBranch) {
+    const checkout = git(['checkout', targetBranch], cwd)
+    if (!checkout.success) {
+      return { success: false, stderr: `Failed to checkout ${targetBranch}: ${checkout.stderr}`, stdout: '' }
+    }
+  }
   const result = git(['merge', '--no-ff', branch], cwd)
+  if (result.success && result.stdout.includes('Already up to date')) {
+    return { success: false, stderr: 'Nothing to merge — the task branch has no new commits. Changes may still be uncommitted.', stdout: result.stdout }
+  }
   return { success: result.success, stderr: result.stderr, stdout: result.stdout }
+}
+
+export function ensureBranchExists(cwd: string, branch: string): void {
+  const exists = git(['rev-parse', '--verify', branch], cwd).success
+  if (!exists) {
+    git(['branch', branch], cwd)
+  }
+}
+
+/** Stage all changes, commit if anything staged, then merge worktree branch into targetBranch in main repo. */
+export function commitAllAndMerge(
+  worktreeCwd: string,
+  projectCwd: string,
+  targetBranch: string,
+  commitMessage: string
+): { success: boolean; stderr: string; committed: boolean } {
+  // Stage everything in worktree
+  const stageResult = git(['add', '-A'], worktreeCwd)
+  if (!stageResult.success) {
+    return { success: false, stderr: `Stage failed: ${stageResult.stderr}`, committed: false }
+  }
+
+  // Check if there's anything staged to commit
+  const hasStagedChanges = !git(['diff', '--cached', '--quiet'], worktreeCwd).success
+  let committed = false
+
+  if (hasStagedChanges) {
+    const commitResult = git(['commit', '-m', commitMessage], worktreeCwd)
+    if (!commitResult.success) {
+      return { success: false, stderr: `Commit failed: ${commitResult.stderr}`, committed: false }
+    }
+    committed = true
+  }
+
+  // Get the task's working branch from the worktree
+  const taskBranch = run('git rev-parse --abbrev-ref HEAD', worktreeCwd)
+  if (!taskBranch || taskBranch === 'HEAD') {
+    return { success: false, stderr: 'Could not determine task branch', committed }
+  }
+
+  // Checkout target branch in main repo
+  const checkoutResult = git(['checkout', targetBranch], projectCwd)
+  if (!checkoutResult.success) {
+    return { success: false, stderr: `Checkout ${targetBranch} failed: ${checkoutResult.stderr}`, committed }
+  }
+
+  // Merge task branch into target
+  const mergeResult = git(['merge', '--no-ff', taskBranch], projectCwd)
+  if (mergeResult.success && mergeResult.stdout.includes('Already up to date')) {
+    return { success: false, stderr: 'Nothing to merge — no new commits on task branch', committed }
+  }
+  return { success: mergeResult.success, stderr: mergeResult.stderr, committed }
 }
 
 export function getGitChanges(cwd: string, taskBranch?: string, startCommit?: string): GitChangesResult {

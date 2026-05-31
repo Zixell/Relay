@@ -306,8 +306,8 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
             )}
           </Field>
 
-          {/* Branch (optional) */}
-          <Field label="Git Branch" optional>
+          {/* Merge target branch (optional) */}
+          <Field label="Merge into branch" optional>
             <BranchCombobox
               branches={localBranches}
               value={branch}
@@ -389,7 +389,7 @@ function BranchCombobox({
     <div ref={containerRef} className="relative">
       <GitBranch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none z-10" />
       <Input
-        placeholder="feat/new-feature (leave blank for current branch)"
+        placeholder="e.g. main, develop (branch to merge into when done)"
         value={displayValue}
         onChange={(e) => {
           const v = e.target.value

@@ -36,7 +36,9 @@ import {
   commitStaged,
   pushOrigin,
   pullOrigin,
-  mergeBranch
+  mergeBranch,
+  ensureBranchExists,
+  commitAllAndMerge
 } from '../git'
 import { addWorktree, removeWorktree } from '../git/worktree'
 import { formatSummaryAsContext, isClaudeCliAvailable } from '../summary/generator'
@@ -79,13 +81,17 @@ export function registerIpcHandlers(): void {
       let branchCreated = false
       if (cwd) {
         try {
-          const result = addWorktree(cwd, id, branch)
+          // branch is the merge TARGET — always auto-create the task's working branch
+          const result = addWorktree(cwd, id)
           worktreePath = result.worktreePath
           branchCreated = result.branchCreated
         } catch (err) {
-          if (branch) throw err  // user chose an explicit branch — surface the error
-          // Non-git project or no branch specified: fall back to running in project dir
+          // Non-git project: fall back to running in project dir
           console.warn('[relay] Worktree creation skipped, running in project directory:', err)
+        }
+        // Ensure merge target branch exists in main repo (create from HEAD if missing)
+        if (branch) {
+          try { ensureBranchExists(cwd, branch) } catch { /* ignore */ }
         }
       }
 
@@ -344,8 +350,18 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle('git:push', (_, cwd: string) => pushOrigin(cwd))
   ipcMain.handle('git:pull', (_, cwd: string) => pullOrigin(cwd))
-  ipcMain.handle('git:merge', (_, { cwd, branch }: { cwd: string; branch: string }) =>
-    mergeBranch(cwd, branch)
+  ipcMain.handle('git:merge', (_, { cwd, branch, targetBranch }: { cwd: string; branch: string; targetBranch?: string }) =>
+    mergeBranch(cwd, branch, targetBranch)
+  )
+
+  ipcMain.handle(
+    'git:commitAndMerge',
+    (_, { worktreeCwd, projectCwd, targetBranch, commitMessage }: {
+      worktreeCwd: string
+      projectCwd: string
+      targetBranch: string
+      commitMessage: string
+    }) => commitAllAndMerge(worktreeCwd, projectCwd, targetBranch, commitMessage)
   )
 
   ipcMain.handle(

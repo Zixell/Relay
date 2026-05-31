@@ -11,7 +11,9 @@ import {
   Save,
   GitCommit,
   CheckCircle2,
-  PauseCircle
+  PauseCircle,
+  GitMerge,
+  XCircle
 } from 'lucide-react'
 import { cn, formatDuration, formatRelativeTime, truncatePath } from '../../lib/utils'
 import { STATUS_CONFIG, PROCESS_LABELS, PROCESS_COLORS, type Task } from '../../types'
@@ -36,6 +38,8 @@ export function TaskDetail({ task }: TaskDetailProps) {
   const [notesSaved, setNotesSaved] = useState(false)
   const [summaries, setSummaries] = useState<SessionSummaryEntry[]>([])
   const [isStopping, setIsStopping] = useState(false)
+  const [mergeState, setMergeState] = useState<'idle' | 'merging' | 'success' | 'error'>('idle')
+  const [mergeError, setMergeError] = useState<string | null>(null)
   const selectTask = useAppStore((s) => s.selectTask)
   const updateTask = useAppStore((s) => s.updateTask)
 
@@ -60,12 +64,12 @@ export function TaskDetail({ task }: TaskDetailProps) {
       try { return task.metadata ? JSON.parse(task.metadata).startCommit : undefined } catch { return undefined }
     })()
     const gitCwd = task.worktree_path || task.project_path
-    window.api.git.getChanges(gitCwd, task.branch, startCommit).then((data) => {
+    window.api.git.getChanges(gitCwd, undefined, startCommit).then((data) => {
       if (data.files.length !== task.changed_files_count) {
         updateTask(task.id, { changed_files_count: data.files.length })
       }
     }).catch(() => {})
-  }, [task.id, task.project_path, task.worktree_path, task.branch])
+  }, [task.id, task.project_path, task.worktree_path])
 
   // Live summary updates from PTY — receives full array JSON
   useEffect(() => {
@@ -79,6 +83,27 @@ export function TaskDetail({ task }: TaskDetailProps) {
     })
     return unsub
   }, [task.id, updateTask])
+
+  const handleMerge = useCallback(async () => {
+    if (!isElectron || !task.branch || !task.worktree_path) return
+    setMergeState('merging')
+    setMergeError(null)
+    try {
+      const stripped = task.branch.replace(/^(feature|feat|fix|bugfix|hotfix|chore|refactor|docs|test|style|perf)\//, '')
+      const commitMessage = `${stripped}: ${task.title}`
+      const res = await window.api.git.commitAndMerge(task.worktree_path, task.project_path, task.branch, commitMessage)
+      if (res.success) {
+        setMergeState('success')
+        setTimeout(() => setMergeState('idle'), 3000)
+      } else {
+        setMergeState('error')
+        setMergeError(res.stderr || 'Merge failed')
+      }
+    } catch (err) {
+      setMergeState('error')
+      setMergeError(String(err))
+    }
+  }, [task.branch, task.worktree_path, task.project_path, task.title])
 
   const handleStop = useCallback(async () => {
     if (!isElectron) return
@@ -183,6 +208,30 @@ export function TaskDetail({ task }: TaskDetailProps) {
                   Respond to Agent
                 </Button>
               )}
+              {task.branch && task.worktree_path && (
+                <button
+                  onClick={handleMerge}
+                  disabled={mergeState === 'merging'}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors',
+                    mergeState === 'idle' && 'border-blue-500/30 text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/50',
+                    mergeState === 'merging' && 'border-white/[0.06] text-zinc-500 cursor-not-allowed',
+                    mergeState === 'success' && 'border-emerald-500/30 text-emerald-400',
+                    mergeState === 'error' && 'border-red-500/30 text-red-400 hover:bg-red-500/10'
+                  )}
+                >
+                  {mergeState === 'merging' && <Loader2 className="w-3 h-3 animate-spin" />}
+                  {mergeState === 'success' && <CheckCircle2 className="w-3 h-3" />}
+                  {mergeState === 'error' && <XCircle className="w-3 h-3" />}
+                  {mergeState === 'idle' && <GitMerge className="w-3 h-3" />}
+                  <span>
+                    {mergeState === 'merging' ? 'Merging…' :
+                     mergeState === 'success' ? 'Merged!' :
+                     mergeState === 'error' ? 'Failed' :
+                     `Merge to ${task.branch}`}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -197,6 +246,14 @@ export function TaskDetail({ task }: TaskDetailProps) {
           </div>
         </div>
       </div>
+
+      {/* Merge error */}
+      {mergeState === 'error' && mergeError && (
+        <div className="flex items-start gap-2 px-6 py-2 bg-red-400/[0.06] border-b border-red-400/20 text-[11px] text-red-400 shrink-0">
+          <XCircle className="w-3 h-3 shrink-0 mt-0.5" />
+          <span className="font-mono break-all">{mergeError}</span>
+        </div>
+      )}
 
       {/* Context summary (prompt) */}
       <div className="px-6 py-3 border-b border-white/[0.05] bg-white/[0.01] shrink-0">
