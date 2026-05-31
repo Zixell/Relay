@@ -55,7 +55,6 @@ export function Terminal({ task, className }: TerminalProps) {
     const unsubAgentExit = window.api.pty.onAgentExit
       ? window.api.pty.onAgentExit(task.id, (status) => {
           agentDone = true
-          xterm.write('\r\n\x1b[32m✓ Agent finished — terminal remains open\x1b[0m\r\n')
           updateTask(task.id, { status, updated_at: Math.floor(Date.now() / 1000) })
         })
       : () => {}
@@ -67,7 +66,7 @@ export function Terminal({ task, className }: TerminalProps) {
           if (status === 'waiting') {
             xterm.write('\r\n\x1b[33m⏸ Waiting for input\x1b[0m\r\n')
           } else if (status === 'completed') {
-            xterm.write('\r\n\x1b[32m✓ Agent finished\x1b[0m\r\n')
+            // no terminal message
           } else if (status === 'running') {
             agentDone = false
             updateTask(task.id, { status: 'running', updated_at: Math.floor(Date.now() / 1000) })
