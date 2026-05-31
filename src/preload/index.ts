@@ -10,7 +10,9 @@ const api = {
 
   // Dialogs
   dialog: {
-    openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder')
+    openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
+    openFile: (opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:openFile', opts)
   },
 
   // Projects

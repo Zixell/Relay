@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Terminal, CheckCircle2, XCircle, FileText, Info, Cpu, Key } from 'lucide-react'
+import { Terminal, CheckCircle2, XCircle, FileText, Info, Cpu, Key, FolderOpen, X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -52,10 +52,25 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (isElectron) window.api.settings.set('CLAUDE_SKIP_PERMISSIONS', String(next))
   }
 
-  function saveSshKeyPath() {
-    if (isElectron) window.api.settings.set('GIT_SSH_KEY_PATH', sshKeyPath.trim())
-    setSshKeySaved(true)
-    setTimeout(() => setSshKeySaved(false), 2000)
+  async function pickSshKeyFile() {
+    if (!isElectron) return
+    const picked = await window.api.dialog.openFile({
+      title: 'Select SSH private key',
+      filters: [
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    if (picked) {
+      setSshKeyPath(picked)
+      window.api.settings.set('GIT_SSH_KEY_PATH', picked)
+      setSshKeySaved(true)
+      setTimeout(() => setSshKeySaved(false), 2000)
+    }
+  }
+
+  function clearSshKeyPath() {
+    setSshKeyPath('')
+    if (isElectron) window.api.settings.set('GIT_SSH_KEY_PATH', '')
   }
 
   return (
@@ -220,26 +235,32 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               Path to the SSH private key used for git push/pull operations.
               Leave empty to use the default SSH agent or key (~/.ssh/id_rsa).
             </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={sshKeyPath}
-                onChange={(e) => setSshKeyPath(e.target.value)}
-                placeholder="~/.ssh/id_rsa"
-                className="flex-1 h-8 px-3 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-white/20 font-mono"
-              />
-              <button
-                onClick={saveSshKeyPath}
-                className={cn(
-                  'h-8 px-3 rounded-lg border text-xs font-medium transition-colors shrink-0',
-                  sshKeySaved
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                    : 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]'
-                )}
-              >
-                {sshKeySaved ? 'Saved' : 'Save'}
-              </button>
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02]">
+              <span className={cn('flex-1 text-xs font-mono truncate min-w-0', sshKeyPath ? 'text-zinc-300' : 'text-zinc-600')}>
+                {sshKeyPath || 'No key selected — using default SSH agent'}
+              </span>
+              {sshKeyPath && (
+                <button
+                  onClick={clearSshKeyPath}
+                  title="Clear"
+                  className="shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+            <button
+              onClick={pickSshKeyFile}
+              className={cn(
+                'flex items-center gap-2 h-8 px-3 rounded-lg border text-xs transition-colors self-start',
+                sshKeySaved
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                  : 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]'
+              )}
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              {sshKeySaved ? 'Key saved' : 'Browse…'}
+            </button>
           </div>
 
         </div>
