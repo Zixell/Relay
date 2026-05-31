@@ -1,7 +1,5 @@
 import { execSync, spawnSync, spawn } from 'child_process'
 import os from 'os'
-import fs from 'fs'
-import { getSetting } from '../settings'
 
 export interface GitFileChange {
   path: string
@@ -61,18 +59,6 @@ function git(args: string[], cwd: string): { success: boolean; stdout: string; s
   }
 }
 
-// Async variant for network operations (push/fetch) — avoids blocking the Electron main process
-function gitAsync(args: string[], cwd: string): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn('git', args, { cwd, env: buildGitEnv(), windowsHide: true })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
-    child.on('close', (code) => resolve({ success: code === 0, stdout: stdout.trim(), stderr: stderr.trim() }))
-    child.on('error', (err) => resolve({ success: false, stdout: '', stderr: err.message }))
-  })
-}
 
 /**
  * Ensures the given branch exists and is checked out in `cwd`.
@@ -222,40 +208,8 @@ export function commitStaged(cwd: string, message: string): { success: boolean; 
 
 export async function pushOrigin(cwd: string, targetBranch?: string): Promise<{ success: boolean; stderr: string; stdout: string }> {
   const refspec = targetBranch ? `HEAD:refs/heads/${targetBranch}` : 'HEAD'
-
-  // Start with the standard git env (includes SSH_AUTH_SOCK for Windows agent)
-  const env = buildGitEnv()
-  let keyNote = ''
-
-  const rawKeyPath = getSetting('GIT_SSH_KEY_PATH')
-  if (rawKeyPath) {
-    // Expand ~ and normalise backslashes
-    const expanded = rawKeyPath.replace(/^~/, os.homedir()).replace(/\\/g, '/')
-
-    // Resolve the path in both Windows (C:/...) and MSYS2 (/c/...) formats so
-    // fs.existsSync can find it regardless of which format was stored
-    const winStylePath = expanded  // e.g. C:/Users/Roman/.ssh/id_ed25519
-    const msys2StylePath = expanded.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
-    const resolvedPath = fs.existsSync(winStylePath) ? winStylePath
-      : fs.existsSync(msys2StylePath) ? msys2StylePath
-      : null
-
-    if (resolvedPath) {
-      // GIT_SSH_COMMAND is executed by Git for Windows through MSYS2 sh.exe.
-      // Using `ssh` here means MSYS2 SSH — the same binary git uses normally.
-      // We must pass the key path in MSYS2 format (/c/Users/...) because MSYS2 sh.exe
-      // will path-mangle Windows-style C:/ arguments, breaking Windows OpenSSH.
-      // MSYS2 SSH handles /c/... paths natively and can use the Windows SSH agent socket.
-      const msys2KeyPath = resolvedPath.replace(/^([A-Za-z]):\//, (_, d) => `/${d.toLowerCase()}/`)
-      env['GIT_SSH_COMMAND'] = `ssh -i "${msys2KeyPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`
-      keyNote = `[SSH key: ${msys2KeyPath}]`
-    } else {
-      keyNote = `[SSH key not found: ${expanded}]`
-    }
-  }
-
-  const result = await new Promise<{ success: boolean; stdout: string; stderr: string }>((resolve) => {
-    const child = spawn('git', ['push', 'origin', refspec], { cwd, env, windowsHide: true })
+  return new Promise((resolve) => {
+    const child = spawn('git', ['push', 'origin', refspec], { cwd, env: buildGitEnv(), windowsHide: true })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
@@ -263,11 +217,6 @@ export async function pushOrigin(cwd: string, targetBranch?: string): Promise<{ 
     child.on('close', (code) => resolve({ success: code === 0, stdout: stdout.trim(), stderr: stderr.trim() }))
     child.on('error', (err) => resolve({ success: false, stdout: '', stderr: err.message }))
   })
-
-  if (!result.success && keyNote) {
-    result.stderr = `${result.stderr}\n${keyNote}`.trim()
-  }
-  return result
 }
 
 export function mergeBranch(cwd: string, branch: string, targetBranch?: string): { success: boolean; stderr: string; stdout: string } {
