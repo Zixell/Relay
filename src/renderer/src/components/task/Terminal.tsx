@@ -131,6 +131,18 @@ export function Terminal({ task, className }: TerminalProps) {
     xterm.loadAddon(webLinksAddon)
     xterm.open(containerRef.current)
 
+    // Right-click: copy selection if text is selected, otherwise paste from clipboard
+    containerRef.current.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const sel = xterm.getSelection()
+      if (sel) {
+        navigator.clipboard.writeText(sel).catch(() => {})
+        xterm.clearSelection()
+      } else {
+        navigator.clipboard.readText().then((t) => { if (t) xterm.paste(t) }).catch(() => {})
+      }
+    })
+
     xterm.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       // Block Ctrl+V from being typed into xterm — paste is handled by the
       // capture-phase paste listener below which fires before xterm's own handler
