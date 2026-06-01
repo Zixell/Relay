@@ -54,7 +54,7 @@
   },
   "build": {
     "appId": "com.relay.app",
-    "productName": "Relay",
+    "productName": "Relay Flowstate",
     "directories": {
       "output": "dist"
     },

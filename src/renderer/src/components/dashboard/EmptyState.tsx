@@ -21,7 +21,7 @@ export function EmptyState() {
         No tasks yet
       </h2>
       <p className="text-sm text-zinc-500 max-w-sm leading-relaxed mb-8">
-        Relay turns AI coding sessions into persistent, resumable workspaces.
+        Relay Flowstate turns AI coding sessions into persistent, resumable workspaces.
         Start a task to begin working with Claude Code, Aider, or any CLI agent.
       </p>
 

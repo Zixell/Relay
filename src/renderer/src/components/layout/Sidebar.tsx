@@ -86,7 +86,7 @@ export function Sidebar({ className }: SidebarProps) {
         <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
           <Zap className="w-3.5 h-3.5 text-white" />
         </div>
-        <span className="font-semibold text-sm text-zinc-100 tracking-tight">Relay</span>
+        <span className="font-semibold text-sm text-zinc-100 tracking-tight">Relay Flowstate</span>
         {(runningCount > 0 || waitingCount > 0) && (
           <div className="ml-auto flex items-center gap-1">
             {runningCount > 0 && (

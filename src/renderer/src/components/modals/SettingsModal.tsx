@@ -53,7 +53,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Relay configuration and integration status.
+            Relay Flowstate configuration and integration status.
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +153,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               <div>
                 <p className="text-xs font-medium text-zinc-200 leading-snug">Auto inject relay context</p>
                 <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
-                  When enabled, Relay automatically appends a compact JSON summary of the current
+                  When enabled, Relay Flowstate automatically appends a compact JSON summary of the current
                   task — recent changes, commits, and status — to each message you send and on
                   session restart. This gives the agent continuity across prompts without you
                   having to repeat context manually.
