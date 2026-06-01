@@ -1,15 +1,11 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "landing.html",
-      "use": "@vercel/static"
-    }
+    { "src": "landing.html", "use": "@vercel/static" },
+    { "src": "relayflowstateintro.mp4", "use": "@vercel/static" }
   ],
   "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/landing.html"
-    }
+    { "src": "/relayflowstateintro.mp4", "dest": "/relayflowstateintro.mp4" },
+    { "src": "/(.*)", "dest": "/landing.html" }
   ]
 }
