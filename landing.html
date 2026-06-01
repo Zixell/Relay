@@ -1002,6 +1002,88 @@
     @media (min-width: 769px) and (max-width: 1024px) {
       .features-grid { grid-template-columns: repeat(2, 1fr); }
     }
+
+    /* ── DEMO VIDEO ── */
+    #demo {
+      padding: 100px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .demo-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .video-wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      border-radius: 16px;
+      border: 1px solid var(--border-hover);
+      background: var(--card);
+      overflow: hidden;
+      box-shadow:
+        0 40px 100px rgba(0,0,0,0.6),
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 0 80px rgba(59,130,246,0.06);
+    }
+
+    .video-titlebar {
+      background: #0d0d0d;
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .video-body {
+      position: relative;
+      background: #000;
+      line-height: 0;
+    }
+
+    .video-body video {
+      width: 100%;
+      display: block;
+    }
+
+    .video-play-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.45);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .video-play-overlay:hover {
+      background: rgba(0,0,0,0.3);
+    }
+
+    .video-play-overlay.hidden {
+      display: none;
+    }
+
+    .play-btn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: rgba(59,130,246,0.9);
+      border: 2px solid rgba(255,255,255,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+      transition: transform 0.2s, background 0.2s;
+      box-shadow: 0 0 40px rgba(59,130,246,0.4);
+    }
+
+    .video-play-overlay:hover .play-btn {
+      transform: scale(1.08);
+      background: rgba(59,130,246,1);
+    }
   </style>
   <script defer src="/_vercel/insights/script.js"></script>
 </head>
@@ -1183,6 +1265,37 @@
                   </div>
                 </div>
                 <div class="mock-terminal" style="opacity:0.5">Session saved. Resume anytime.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DEMO VIDEO ── -->
+    <section id="demo">
+      <div class="section">
+        <div class="demo-header fade-up">
+          <div class="section-eyebrow">Demo</div>
+          <h2 class="section-heading">See Relay Flowstate <span class="grad">in action</span></h2>
+          <p class="section-desc">Watch how Relay Flowstate manages multiple AI agents in parallel — isolated, observable, and always under your control.</p>
+        </div>
+        <div class="video-wrapper fade-up">
+          <div class="video-titlebar">
+            <span class="mock-dot mock-dot-red"></span>
+            <span class="mock-dot mock-dot-yellow"></span>
+            <span class="mock-dot mock-dot-green"></span>
+            <span class="mock-title-text">relayflowstateintro.mp4</span>
+          </div>
+          <div class="video-body">
+            <video id="demo-video" preload="metadata">
+              <source src="relayflowstateintro.mp4" type="video/mp4" />
+            </video>
+            <div class="video-play-overlay" id="play-overlay" onclick="playDemoVideo()">
+              <div class="play-btn">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="white" style="margin-left:3px">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
               </div>
             </div>
           </div>
@@ -1543,6 +1656,14 @@
   </style>
 
   <script>
+    function playDemoVideo() {
+      const video = document.getElementById('demo-video');
+      const overlay = document.getElementById('play-overlay');
+      video.controls = true;
+      video.play();
+      overlay.classList.add('hidden');
+    }
+
     // Intersection observer for fade-up animations
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
