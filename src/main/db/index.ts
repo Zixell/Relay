@@ -213,9 +213,10 @@ export function updateTaskSummary(id: string, summary: string) {
   db.prepare('UPDATE tasks SET summary = ?, updated_at = unixepoch() WHERE id = ?').run(summary, id)
 }
 
-/** Append a new summary entry to task_summaries and update tasks.summary with the latest. */
+/** Upsert the single summary for a task — there is always at most one row per task. */
 export function appendTaskSummary(taskId: string, summaryJson: string) {
   if (!db) return
+  db.prepare('DELETE FROM task_summaries WHERE task_id = ?').run(taskId)
   db.prepare('INSERT INTO task_summaries (task_id, summary_json) VALUES (?, ?)').run(taskId, summaryJson)
   db.prepare('UPDATE tasks SET summary = ?, updated_at = unixepoch() WHERE id = ?').run(summaryJson, taskId)
 }

@@ -59,7 +59,7 @@ function scheduleInactivityCheck(taskId: string): void {
     const newStatus = 'completed' as const
     emitStatusChange(taskId, newStatus)
 
-    // Regenerate the single task summary from all user prompts + git changes
+    // Generate or incrementally update the single task summary
     try {
       const task = getTaskById(taskId) as {
         project_path: string
@@ -70,19 +70,41 @@ function scheduleInactivityCheck(taskId: string): void {
 
       const meta = task.metadata ? JSON.parse(task.metadata) : {}
 
-      // Collect all user prompts recorded for this task
-      const events = getTaskEvents(taskId) as Array<{ type: string; content: string }>
-      const userPrompts = events
-        .filter((e) => e.type === 'user_prompt' && e.content)
-        .map((e) => e.content)
+      // Load existing summary (if any) to determine incremental vs. fresh generation
+      const summaryRows = getTaskSummaries(taskId)
+      const existingSummary: { text?: string; lastLogId?: number; timestamp?: string } | null =
+        summaryRows.length > 0
+          ? (() => { try { return JSON.parse(summaryRows[summaryRows.length - 1].summary_json) } catch { return null } })()
+          : null
 
-      // Collect Claude's actual terminal output for richer summarization
-      const logs = getTerminalLogs(taskId) as Array<{ data: string }>
-      const claudeOutput = logs
+      // All terminal logs — used for maxLogId tracking and new-output extraction
+      const allLogs = getTerminalLogs(taskId) as Array<{ id: number; data: string }>
+      const lastLogId = (existingSummary?.lastLogId as number | undefined) ?? 0
+
+      // Only use logs produced since the previous summary was generated
+      const newLogs = lastLogId > 0 ? allLogs.filter((l) => l.id > lastLogId) : allLogs
+      const claudeOutput = newLogs
         .map((l) => l.data)
         .join('')
         .replace(ANSI_RE, '')
         .replace(/\r/g, '')
+
+      // Collect only new user prompts (since the last summary timestamp)
+      const events = getTaskEvents(taskId) as Array<{ type: string; content: string; timestamp: number }>
+      let userPrompts: string[]
+      if (existingSummary?.timestamp) {
+        const lastTs = Math.floor(new Date(existingSummary.timestamp).getTime() / 1000)
+        userPrompts = events
+          .filter((e) => e.type === 'user_prompt' && e.content && (e.timestamp ?? 0) > lastTs)
+          .map((e) => e.content)
+      } else {
+        userPrompts = events
+          .filter((e) => e.type === 'user_prompt' && e.content)
+          .map((e) => e.content)
+      }
+
+      // Record max log ID so the next incremental update only processes new output
+      const maxLogId = allLogs.length > 0 ? Math.max(...allLogs.map((l) => l.id)) : 0
 
       // Use the task's worktree for git context if available; fall back to project root
       const summaryCwd = task.worktree_path || task.project_path
@@ -93,13 +115,14 @@ function scheduleInactivityCheck(taskId: string): void {
         summaryCwd,
         meta.startCommit,
         newStatus,
-        claudeOutput
+        claudeOutput,
+        existingSummary?.text,
+        maxLogId
       )
 
       const json = JSON.stringify(summary)
       appendTaskSummary(taskId, json)
-      const allSummaries = getTaskSummaries(taskId).map((r) => JSON.parse(r.summary_json))
-      BrowserWindow.getAllWindows()[0]?.webContents.send(`pty:summary:${taskId}`, JSON.stringify(allSummaries))
+      BrowserWindow.getAllWindows()[0]?.webContents.send(`pty:summary:${taskId}`, JSON.stringify([summary]))
     } catch (err) {
       console.warn('[relay] Failed to generate session summary:', err)
     }

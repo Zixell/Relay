@@ -55,6 +55,12 @@
     @apply bg-white/20;
   }
 
+  /* Fix xterm scrollbar: .xterm-screen canvas overlaps .xterm-viewport scrollbar,
+     blocking clicks. overlay makes the scrollbar float above the canvas layer. */
+  .xterm .xterm-viewport {
+    overflow-y: overlay !important;
+  }
+
   /* Selection */
   ::selection {
     background: rgba(59, 130, 246, 0.25);

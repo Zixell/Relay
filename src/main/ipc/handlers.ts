@@ -40,7 +40,7 @@ import {
   commitAllAndMerge
 } from '../git'
 import { addWorktree, removeWorktree } from '../git/worktree'
-import { formatSummaryAsContext, isClaudeCliAvailable } from '../summary/generator'
+import { isClaudeCliAvailable } from '../summary/generator'
 import { getSetting, setSetting, getSettingForClient } from '../settings'
 
 // Per-task input buffer to reconstruct full lines from character-by-character PTY writes
@@ -211,24 +211,6 @@ export function registerIpcHandlers(): void {
         emitTaskEvent({ id: eventId, task_id: taskId, type: 'user_prompt', content: line, metadata: null, timestamp: now })
       }
       inputBuffers.set(taskId, '')
-
-      // Inject summary context if the user has enabled Auto inject relay context.
-      // The user's typed chars are already in the PTY line buffer — appending the
-      // context suffix before \r makes Claude receive them as one combined line.
-      if (line && getSetting('AUTO_INJECT_CONTEXT') === 'true') {
-        const task = getTaskById(taskId) as { process_type?: string } | null
-        if (task?.process_type && task.process_type !== 'generic') {
-          try {
-            const rows = getTaskSummaries(taskId)
-            if (rows.length > 0) {
-              const last = JSON.parse(rows[rows.length - 1].summary_json)
-              const summary = { text: last.text, modified_files: last.modified_files, commits: last.commits, status: last.status }
-              writeToPty(taskId, ` [relay_context: ${JSON.stringify(summary)}]\r`)
-              return true
-            }
-          } catch { /* malformed — fall through to plain \r */ }
-        }
-      }
     } else if (data === '\x7f' || data === '\b') {
       // Backspace
       inputBuffers.set(taskId, buf.slice(0, -1))
@@ -288,22 +270,9 @@ export function registerIpcHandlers(): void {
       args = resolved.args
     }
 
-    // Inject context on restart only when NOT resuming a Claude session
-    // (resuming already restores the full conversation history)
-    let contextPrompt: string | undefined
-    const isAgent = task.process_type !== 'generic'
-    const isResuming = task.process_type === 'claude-code' && !!task.claude_session_id
-    if (isAgent && !isResuming && getSetting('AUTO_INJECT_CONTEXT') === 'true') {
-      const summaryRows = getTaskSummaries(taskId)
-      if (summaryRows.length > 0) {
-        const summaries = summaryRows.map((r) => JSON.parse(r.summary_json))
-        contextPrompt = formatSummaryAsContext(summaries)
-      }
-    }
-
     // Use the task's worktree if it exists, otherwise fall back to the project root
     const sessionCwd = task.worktree_path || task.project_path
-    createPtySession(taskId, cmd, args, sessionCwd, undefined, contextPrompt, cols, rows)
+    createPtySession(taskId, cmd, args, sessionCwd, undefined, undefined, cols, rows)
 
     updateTaskStatus(taskId, 'running')
     return { success: true }
