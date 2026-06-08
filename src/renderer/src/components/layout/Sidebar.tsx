@@ -39,7 +39,6 @@ export function Sidebar({ className }: SidebarProps) {
 
   const tasks = useAppStore(selectFilteredTasks)
   const allTasks = useAppStore((s) => s.tasks)
-  const recentTasks = tasks.slice(0, 5)
   const runningCount = allTasks.filter((t) => t.status === 'running').length
   const waitingCount = allTasks.filter((t) => t.status === 'waiting').length
 
@@ -221,7 +220,7 @@ export function Sidebar({ className }: SidebarProps) {
         </span>
       </div>
       <div className="px-2 space-y-0.5 flex-1 overflow-y-auto">
-        {recentTasks.map((task) => {
+        {tasks.map((task) => {
           const statusCfg = STATUS_CONFIG[task.status]
           return (
             <button
