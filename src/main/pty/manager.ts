@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { insertTerminalLog, updateTaskStatus, getTaskById, appendTaskSummary, getTaskSummaries, getTaskEvents, getTerminalLogs } from '../db'
 import { generateSessionSummary } from '../summary/generator'
+import { ensureNodePtyPermissions } from './setup'
 import { homedir } from 'os'
 import { join } from 'path'
 import { readdirSync, existsSync } from 'fs'
@@ -9,6 +10,7 @@ import { readdirSync, existsSync } from 'fs'
 type IPty = import('node-pty').IPty
 let pty: typeof import('node-pty') | null = null
 try {
+  ensureNodePtyPermissions()
   pty = require('node-pty')
 } catch {
   console.warn('[relay] node-pty not available — PTY sessions disabled')
@@ -264,13 +266,35 @@ export function createPtySession(
   // This avoids ConPTY child-process handle-inheritance issues on Windows where
   // spawning an agent directly (cmd.exe /c) would keep the PTY alive after the
   // agent exits if it has lingering grandchildren.
-  const ptyProcess = pty.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd: cwd || process.env.HOME || '/',
-    env: resolvedEnv
-  })
+  let ptyProcess: IPty
+  try {
+    ptyProcess = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: cwd || process.env.HOME || '/',
+      env: resolvedEnv
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message.includes('posix_spawnp failed')) {
+      ensureNodePtyPermissions()
+      try {
+        ptyProcess = pty.spawn(shell, [], {
+          name: 'xterm-256color',
+          cols,
+          rows,
+          cwd: cwd || process.env.HOME || '/',
+          env: resolvedEnv
+        })
+      } catch (retryErr) {
+        const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr)
+        throw new Error(`Failed to start terminal session: ${retryMessage}`)
+      }
+    } else {
+      throw err
+    }
+  }
 
   sessions.set(sessionId, { id: sessionId, taskId, process: ptyProcess, cols, rows })
 
