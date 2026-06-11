@@ -6,6 +6,7 @@ import { initDatabase, resetRunningTasks, getLockedTaskIds } from './db'
 import { registerIpcHandlers } from './ipc/handlers'
 import { killAllSessions, initLockedStatuses } from './pty/manager'
 import { loadSettings } from './settings'
+import { resolveAppPath } from './env'
 
 /** Poll until the Vite dev server is accepting connections, then load it. */
 function waitAndLoadURL(win: BrowserWindow, url: string, retries = 20, delay = 300): void {
@@ -87,6 +88,7 @@ app.whenReady().then(() => {
     resetRunningTasks()
     initLockedStatuses(getLockedTaskIds())
     loadSettings()
+    resolveAppPath()
   } catch (err) {
     console.warn('[relay] DB init failed (native bindings not built?):', err)
   }

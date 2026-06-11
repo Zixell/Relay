@@ -42,6 +42,7 @@ import {
 import { addWorktree, removeWorktree } from '../git/worktree'
 import { isClaudeCliAvailable } from '../summary/generator'
 import { getSetting, setSetting, getSettingForClient } from '../settings'
+import { resolveUnixShell } from '../env'
 
 // Per-task input buffer to reconstruct full lines from character-by-character PTY writes
 const inputBuffers = new Map<string, string>()
@@ -135,7 +136,7 @@ export function registerIpcHandlers(): void {
       }
 
       // Build command from process type.
-      const agentShell = process.platform === 'win32' ? 'cmd.exe' : 'bash'
+      const agentShell = process.platform === 'win32' ? 'cmd.exe' : resolveUnixShell()
       const skipPerms = getSetting('CLAUDE_SKIP_PERMISSIONS') !== 'false'
       const claudeArgs = skipPerms ? ['--dangerously-skip-permissions'] : []
       const commands: Record<string, { cmd: string; args: string[] }> = {
@@ -263,7 +264,7 @@ export function registerIpcHandlers(): void {
         'claude-code': { cmd: 'claude', args: claudeBaseArgs },
         aider: { cmd: 'aider', args: ['--yes'] },
         opencode: { cmd: 'opencode', args: [] },
-        generic: { cmd: process.platform === 'win32' ? 'cmd.exe' : 'bash', args: [] }
+        generic: { cmd: process.platform === 'win32' ? 'cmd.exe' : resolveUnixShell(), args: [] }
       }
       const resolved = commands[task.process_type] ?? commands.generic
       cmd = resolved.cmd

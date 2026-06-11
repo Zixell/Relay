@@ -1,4 +1,5 @@
 import { execSync, spawnSync, spawn } from 'child_process'
+import { buildAppEnv } from '../env'
 
 export interface SessionSummary {
   session_id: string
@@ -54,7 +55,8 @@ export function isClaudeCliAvailable(): boolean {
       encoding: 'utf8',
       timeout: 5000,
       windowsHide: true,
-      shell: true
+      shell: true,
+      env: buildAppEnv()
     })
     return result.status === 0
   } catch {
@@ -73,7 +75,7 @@ function runClaudeCli(prompt: string, cwd: string): Promise<string | null> {
       child = spawn(
         'claude',
         ['--print', '--dangerously-skip-permissions'],
-        { cwd, windowsHide: true, shell: true, env: process.env }
+        { cwd, windowsHide: true, shell: true, env: buildAppEnv() }
       )
     } catch {
       return resolve(null)

@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { insertTerminalLog, updateTaskStatus, getTaskById, appendTaskSummary, getTaskSummaries, getTaskEvents, getTerminalLogs } from '../db'
 import { generateSessionSummary } from '../summary/generator'
 import { ensureNodePtyPermissions } from './setup'
+import { buildAppEnv, resolveUnixShell } from '../env'
 import { homedir } from 'os'
 import { join } from 'path'
 import { readdirSync, existsSync } from 'fs'
@@ -252,10 +253,9 @@ export function createPtySession(
     return sessionId
   }
 
-  const shell = process.platform === 'win32' ? 'cmd.exe' : 'bash'
+  const shell = process.platform === 'win32' ? 'cmd.exe' : resolveUnixShell()
   const resolvedEnv = {
-    ...process.env,
-    ...(env ?? {}),
+    ...buildAppEnv(env),
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor'
   } as Record<string, string>

@@ -1,5 +1,5 @@
 import { execSync, spawnSync, spawn } from 'child_process'
-import os from 'os'
+import { buildAppEnv } from '../env'
 
 export interface GitFileChange {
   path: string
@@ -32,16 +32,7 @@ function run(cmd: string, cwd: string): string {
 
 // Build env for git subprocesses — ensures SSH works from Electron on Windows
 function buildGitEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: os.homedir() }
-  if (process.platform === 'win32' && !env.SSH_AUTH_SOCK) {
-    // Git for Windows' SSH (Cygwin-based) can connect to the Windows OpenSSH
-    // Agent service via this named pipe — but only if SSH_AUTH_SOCK is set.
-    // In a terminal session it may be inherited; in Electron it never is.
-    env.SSH_AUTH_SOCK = '//./pipe/openssh-ssh-agent'
-  }
-  // SSH key injection is handled per-operation via git -c core.sshCommand in pushOrigin.
-  // buildGitEnv is used for local operations (commit, status, merge) that don't need SSH.
-  return env
+  return buildAppEnv()
 }
 
 // Runs a git command synchronously — does NOT throw

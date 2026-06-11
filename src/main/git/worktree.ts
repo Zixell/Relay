@@ -2,22 +2,14 @@ import { spawnSync } from 'child_process'
 import { app } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
-import os from 'os'
-
-function buildGitEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: os.homedir() }
-  if (process.platform === 'win32' && !env.SSH_AUTH_SOCK) {
-    env.SSH_AUTH_SOCK = '//./pipe/openssh-ssh-agent'
-  }
-  return env
-}
+import { buildAppEnv } from '../env'
 
 function git(args: string[], cwd: string): { success: boolean; stdout: string; stderr: string } {
   const result = spawnSync('git', args, {
     cwd,
     encoding: 'utf8',
     timeout: 30000,
-    env: buildGitEnv()
+    env: buildAppEnv()
   })
   return {
     success: result.status === 0,
