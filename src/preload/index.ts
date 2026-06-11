@@ -49,7 +49,7 @@ const api = {
     onEvent: (taskId: string, callback: (event: unknown) => void) => {
       const listener = (_: Electron.IpcRendererEvent, event: unknown) => callback(event)
       ipcRenderer.on(`tasks:event:${taskId}`, listener)
-      return () => ipcRenderer.removeListener(`tasks:event:${taskId}`, listener)
+      return () => { ipcRenderer.removeListener(`tasks:event:${taskId}`, listener) }
     },
     delete: (id: string) => ipcRenderer.invoke('tasks:delete', id)
   },
@@ -99,27 +99,27 @@ const api = {
     onData: (taskId: string, callback: (data: string) => void) => {
       const listener = (_: Electron.IpcRendererEvent, data: string) => callback(data)
       ipcRenderer.on(`pty:data:${taskId}`, listener)
-      return () => ipcRenderer.removeListener(`pty:data:${taskId}`, listener)
+      return () => { ipcRenderer.removeListener(`pty:data:${taskId}`, listener) }
     },
     onExit: (taskId: string, callback: (exitCode: number) => void) => {
       const listener = (_: Electron.IpcRendererEvent, exitCode: number) => callback(exitCode)
       ipcRenderer.on(`pty:exit:${taskId}`, listener)
-      return () => ipcRenderer.removeListener(`pty:exit:${taskId}`, listener)
+      return () => { ipcRenderer.removeListener(`pty:exit:${taskId}`, listener) }
     },
     onAgentExit: (taskId: string, callback: (status: string) => void) => {
       const listener = (_: Electron.IpcRendererEvent, status: string) => callback(status)
       ipcRenderer.on(`pty:agent-exit:${taskId}`, listener)
-      return () => ipcRenderer.removeListener(`pty:agent-exit:${taskId}`, listener)
+      return () => { ipcRenderer.removeListener(`pty:agent-exit:${taskId}`, listener) }
     },
     onStatusChange: (taskId: string, callback: (status: string) => void) => {
       const listener = (_: Electron.IpcRendererEvent, status: string) => callback(status)
       ipcRenderer.on(`pty:status:${taskId}`, listener)
-      return () => ipcRenderer.removeListener(`pty:status:${taskId}`, listener)
+      return () => { ipcRenderer.removeListener(`pty:status:${taskId}`, listener) }
     },
     onSummary: (taskId: string, callback: (summary: string) => void) => {
       const listener = (_: Electron.IpcRendererEvent, summary: string) => callback(summary)
       ipcRenderer.on(`pty:summary:${taskId}`, listener)
-      return () => ipcRenderer.removeListener(`pty:summary:${taskId}`, listener)
+      return () => { ipcRenderer.removeListener(`pty:summary:${taskId}`, listener) }
     }
   }
 }

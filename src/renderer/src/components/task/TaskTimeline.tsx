@@ -6,8 +6,7 @@ import {
   GitCommit,
   GitMerge,
   Zap,
-  AlertCircle,
-  Clock
+  AlertCircle
 } from 'lucide-react'
 import { cn, formatTimestamp } from '../../lib/utils'
 import type { TaskEvent } from '../../types'

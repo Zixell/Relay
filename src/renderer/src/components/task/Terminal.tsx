@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Terminal as TerminalIcon, RefreshCw } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAppStore } from '../../stores/appStore'
-import type { Task } from '../../types'
+import type { Task, TaskStatus } from '../../types'
 
 // @xterm/xterm is a browser-compatible package — import directly
 import { Terminal as XTerm } from '@xterm/xterm'
@@ -55,14 +55,14 @@ export function Terminal({ task, className }: TerminalProps) {
     const unsubAgentExit = window.api.pty.onAgentExit
       ? window.api.pty.onAgentExit(task.id, (status) => {
           agentDone = true
-          updateTask(task.id, { status, updated_at: Math.floor(Date.now() / 1000) })
+          updateTask(task.id, { status: status as TaskStatus, updated_at: Math.floor(Date.now() / 1000) })
         })
       : () => {}
 
     const unsubStatus = window.api.pty.onStatusChange
       ? window.api.pty.onStatusChange(task.id, (status) => {
           agentDone = true
-          updateTask(task.id, { status, updated_at: Math.floor(Date.now() / 1000) })
+          updateTask(task.id, { status: status as TaskStatus, updated_at: Math.floor(Date.now() / 1000) })
           if (status === 'waiting') {
             xterm.write('\r\n\x1b[33m⏸ Waiting for input\x1b[0m\r\n')
           } else if (status === 'completed') {

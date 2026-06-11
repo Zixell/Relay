@@ -13,7 +13,7 @@ import {
   Folder,
   Trash2
 } from 'lucide-react'
-import { cn, formatDuration, formatRelativeTime, truncatePath } from '../../lib/utils'
+import { cn, formatDuration, formatRelativeTime } from '../../lib/utils'
 import { STATUS_CONFIG, PROCESS_LABELS, PROCESS_COLORS, type Task } from '../../types'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'

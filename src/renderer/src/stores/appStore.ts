@@ -36,7 +36,7 @@ interface AppState {
 
 const isElectron = typeof window !== 'undefined' && !!window.api
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set) => ({
   tasks: isElectron ? [] : MOCK_TASKS,
   projects: isElectron ? [] : MOCK_PROJECTS,
   selectedTaskId: null,

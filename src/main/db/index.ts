@@ -21,7 +21,9 @@ export function initDatabase(): void {
 }
 
 function createSchema(): void {
-  db.exec(`
+  if (!db) return
+  const database = db
+  database.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -82,11 +84,11 @@ function createSchema(): void {
   `)
 
   // Migrate existing databases — ignore errors if column already exists
-  try { db.exec('ALTER TABLE tasks ADD COLUMN summary TEXT') } catch { /* already exists */ }
-  try { db.exec('ALTER TABLE tasks ADD COLUMN worktree_path TEXT') } catch { /* already exists */ }
-  try { db.exec('ALTER TABLE tasks ADD COLUMN claude_session_id TEXT') } catch { /* already exists */ }
+  try { database.exec('ALTER TABLE tasks ADD COLUMN summary TEXT') } catch { /* already exists */ }
+  try { database.exec('ALTER TABLE tasks ADD COLUMN worktree_path TEXT') } catch { /* already exists */ }
+  try { database.exec('ALTER TABLE tasks ADD COLUMN claude_session_id TEXT') } catch { /* already exists */ }
   try {
-    db.exec(`CREATE TABLE IF NOT EXISTS task_summaries (
+    database.exec(`CREATE TABLE IF NOT EXISTS task_summaries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       summary_json TEXT NOT NULL,

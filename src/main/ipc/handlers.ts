@@ -335,7 +335,7 @@ export function registerIpcHandlers(): void {
         const eventId = randomUUID()
         const content = JSON.stringify({ targetBranch, commit: result.commitHash })
         const now = Math.floor(Date.now() / 1000)
-        insertTaskEvent({ id: eventId, task_id: taskId, type: 'git_merge', content, metadata: null })
+        insertTaskEvent({ id: eventId, task_id: taskId, type: 'git_merge', content })
         emitTaskEvent({ id: eventId, task_id: taskId, type: 'git_merge', content, metadata: null, timestamp: now })
       }
       return result

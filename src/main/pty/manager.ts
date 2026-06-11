@@ -6,6 +6,7 @@ import { join } from 'path'
 import { readdirSync, existsSync } from 'fs'
 
 // Lazy-load node-pty so a missing native binding doesn't crash the whole app
+type IPty = import('node-pty').IPty
 let pty: typeof import('node-pty') | null = null
 try {
   pty = require('node-pty')
@@ -16,7 +17,7 @@ try {
 interface PtySession {
   id: string
   taskId: string
-  process: pty.IPty
+  process: IPty
   cols: number
   rows: number
 }
@@ -150,7 +151,7 @@ export function initLockedStatuses(taskIds: string[]): void {
 }
 
 /** Write a potentially large string to PTY in chunks to avoid ConPTY/node-pty buffer limits (~4 KB on Windows) */
-function writeLarge(proc: pty.IPty, text: string, chunkSize = 2048, delayMs = 10, onDone?: () => void): void {
+function writeLarge(proc: IPty, text: string, chunkSize = 2048, delayMs = 10, onDone?: () => void): void {
   let offset = 0
   const writeNext = () => {
     if (offset >= text.length) {
