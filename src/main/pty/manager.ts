@@ -340,13 +340,44 @@ export function createPtySession(
       ptyProcess.write(`${agentCmd}\r`)
 
       if (initialPrompt) {
-        // Wait for the agent to finish its startup output (600 ms of silence),
-        // then type the initial prompt so the agent stays open interactively.
+        // Two-signal approach to reliably deliver the initial prompt:
+        //
+        // Signal A (fast path): detect Claude Code's interactive prompt indicator
+        //   ">" appearing at the end of the ANSI-stripped output stream.
+        //   Claude Code renders "> " (or "❯ ") when it's actually ready for input.
+        //   Once detected, we wait an additional 300 ms of silence so the TUI
+        //   finishes any residual rendering, then send.
+        //
+        // Signal B (fallback): if the prompt indicator is never seen (e.g. a future
+        //   Claude version changes its UI), fire after 3 s of silence, but only
+        //   after at least 2 s have elapsed since the command was written — this
+        //   prevents sending during early banner bursts that have brief pauses.
+        //
+        // Hard fallback at 30 s covers extremely slow first-time startups.
+
         let promptSent = false
         let lastOutput = Date.now()
+        const cmdWrittenAt = Date.now()
 
-        const outputWatcher = ptyProcess.onData(() => {
-          if (!promptSent) lastOutput = Date.now()
+        // Accumulate ANSI-stripped output to detect the Claude Code prompt
+        let cleanBuf = ''
+        let promptIndicatorAt = 0  // timestamp when "> " was first detected
+
+        const outputWatcher = ptyProcess.onData((data) => {
+          if (promptSent) return
+          lastOutput = Date.now()
+
+          // Strip ANSI and accumulate for prompt detection
+          const clean = data.replace(ANSI_RE, '').replace(/\r/g, '')
+          cleanBuf += clean
+          if (cleanBuf.length > 6000) cleanBuf = cleanBuf.slice(-6000)
+
+          // Detect Claude Code's prompt: ">" (optionally with whitespace) at the
+          // very end of accumulated output, preceded by a newline or start.
+          // Require at least 100 chars so we don't fire on the shell prompt itself.
+          if (!promptIndicatorAt && cleanBuf.length > 100 && /(?:^|\n)\s*[>❯]\s*$/.test(cleanBuf)) {
+            promptIndicatorAt = Date.now()
+          }
         })
 
         const sendPrompt = () => {
@@ -361,7 +392,20 @@ export function createPtySession(
 
         const checkInterval = setInterval(() => {
           if (promptSent) { clearInterval(checkInterval); return }
-          if (Date.now() - lastOutput >= 1500) sendPrompt()
+          const now = Date.now()
+          const silence = now - lastOutput
+          const elapsed = now - cmdWrittenAt
+
+          // Signal A: prompt indicator detected + 300 ms silence
+          if (promptIndicatorAt && silence >= 300) {
+            sendPrompt()
+            return
+          }
+
+          // Signal B: 3 s silence AND at least 2 s since command was written
+          if (silence >= 3000 && elapsed >= 2000) {
+            sendPrompt()
+          }
         }, 100)
 
         // Hard fallback: send after 30 s regardless (covers very slow first-time startups)
