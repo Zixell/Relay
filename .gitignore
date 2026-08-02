@@ -2,7 +2,9 @@
 node_modules/
 
 # Build output
-dist/
+dist/*
+!dist/*.dmg
+!dist/*.dmg.blockmap
 dist-electron/
 out/
 release/
